@@ -1,0 +1,25 @@
+appId: com.quietclaw.app
+productName: QuietClaw
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**/*
+  - native/build/Release/*.node
+  - "!node_modules/**/*"
+extraResources:
+  - from: resources/default_config.toml
+    to: default_config.toml
+mac:
+  category: public.app-category.productivity
+  icon: resources/icon.icns
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: "QuietClaw needs microphone access to capture your voice during meetings."
+dmg:
+  artifactName: "${productName}-${version}.${ext}"

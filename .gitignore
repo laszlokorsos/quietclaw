@@ -1,0 +1,30 @@
+node_modules/
+out/
+dist/
+native/build/
+*.node
+.DS_Store
+.env
+.env.local
+*.log
+
+# Native addon build artifacts
+native/build/
+native/Release/
+native/Debug/
+
+# Electron
+*.dmg
+*.zip
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test
+coverage/
+
+# Data (never commit user data)
+meetings/

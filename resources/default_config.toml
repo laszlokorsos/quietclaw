@@ -1,0 +1,56 @@
+# QuietClaw Configuration
+# See https://github.com/laszlo/quietclaw for documentation
+
+[general]
+data_dir = "~/.quietclaw/meetings"
+retain_audio = false               # Audio files are large; enable only if you need playback
+audio_format = "opus"              # opus (tiny, lossy) | flac (lossless) | wav (uncompressed)
+audio_retention_days = 30          # Only applies when retain_audio = true
+markdown_output = true             # Generate human-readable .md files alongside JSON
+
+[consent]
+auto_message_enabled = false       # Auto-send a consent message in meeting chat
+auto_message_text = "I'm using QuietClaw to transcribe this meeting for my notes."
+platforms = ["google_meet", "zoom"]
+
+# Add calendar accounts here, or use the UI to connect them via OAuth.
+# [[calendar.accounts]]
+# label = "Work"
+# provider = "google"
+# email = "you@company.com"
+# enabled = true
+
+[calendar.settings]
+sync_interval_minutes = 5
+lookahead_minutes = 15
+use_for_auto_detect = true
+use_for_speaker_id = true
+
+[stt]
+provider = "deepgram"              # deepgram (MVP). Additional providers in Phase 2.
+
+[stt.deepgram]
+model = "nova-2"
+language = "en"
+diarize = true
+
+[summarization]
+enabled = true                     # Set to false for raw transcript only
+provider = "anthropic"             # anthropic | openai | ollama
+model = "claude-haiku-4-5-20251001"
+custom_prompt = ""
+extract_actions = true
+extract_decisions = true
+extract_topics = true
+
+[summarization.ollama]
+endpoint = "http://localhost:11434"
+model = "llama3.1"
+
+[api]
+enabled = true
+port = 19832
+
+[notifications]
+on_meeting_processed = true
+desktop_notifications = true

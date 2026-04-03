@@ -1,0 +1,139 @@
+/**
+ * Secret storage using Electron's safeStorage API.
+ *
+ * All API keys and OAuth tokens are stored encrypted at rest
+ * using OS-level credential storage (Keychain on macOS).
+ *
+ * Key naming convention:
+ *   quietclaw:deepgram:api_key
+ *   quietclaw:anthropic:api_key
+ *   quietclaw:openai:api_key
+ *   quietclaw:calendar:{email}:refresh_token
+ *   quietclaw:api:auth_token
+ */
+
+import { safeStorage } from 'electron'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+import { randomBytes } from 'node:crypto'
+import log from 'electron-log/main'
+
+const SECRETS_DIR = path.join(os.homedir(), '.quietclaw', 'secrets')
+
+/** Ensure the secrets directory exists with restricted permissions */
+function ensureSecretsDir(): void {
+  if (!fs.existsSync(SECRETS_DIR)) {
+    fs.mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 })
+  }
+}
+
+/** Get the file path for a secret key */
+function secretPath(key: string): string {
+  // Replace colons with underscores for filesystem compatibility
+  const safeKey = key.replace(/:/g, '_')
+  return path.join(SECRETS_DIR, `${safeKey}.enc`)
+}
+
+/** Store a secret value, encrypted via safeStorage */
+export function setSecret(key: string, value: string): void {
+  if (!safeStorage.isEncryptionAvailable()) {
+    log.error('[Secrets] Encryption not available — cannot store secret')
+    throw new Error('Encryption not available. Is the app running in a desktop environment?')
+  }
+
+  ensureSecretsDir()
+  const encrypted = safeStorage.encryptString(value)
+  fs.writeFileSync(secretPath(key), encrypted, { mode: 0o600 })
+  log.info(`[Secrets] Stored secret: ${key}`)
+}
+
+/** Retrieve a secret value. Returns null if not found. */
+export function getSecret(key: string): string | null {
+  const filePath = secretPath(key)
+  if (!fs.existsSync(filePath)) {
+    return null
+  }
+
+  if (!safeStorage.isEncryptionAvailable()) {
+    log.error('[Secrets] Encryption not available — cannot read secret')
+    return null
+  }
+
+  try {
+    const encrypted = fs.readFileSync(filePath)
+    return safeStorage.decryptString(encrypted)
+  } catch (err) {
+    log.error(`[Secrets] Failed to decrypt ${key}:`, err)
+    return null
+  }
+}
+
+/** Delete a stored secret */
+export function deleteSecret(key: string): void {
+  const filePath = secretPath(key)
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath)
+    log.info(`[Secrets] Deleted secret: ${key}`)
+  }
+}
+
+/** Check if a secret exists */
+export function hasSecret(key: string): boolean {
+  return fs.existsSync(secretPath(key))
+}
+
+/** List all stored secret keys (without values) */
+export function listSecretKeys(): string[] {
+  ensureSecretsDir()
+  return fs
+    .readdirSync(SECRETS_DIR)
+    .filter((f) => f.endsWith('.enc'))
+    .map((f) => f.replace('.enc', '').replace(/_/g, ':'))
+}
+
+// ---------------------------------------------------------------------------
+// Convenience helpers for common secrets
+// ---------------------------------------------------------------------------
+
+export function getDeepgramApiKey(): string | null {
+  // Dev mode: check env var first
+  if (process.env.DEEPGRAM_API_KEY) {
+    return process.env.DEEPGRAM_API_KEY
+  }
+  return getSecret('quietclaw:deepgram:api_key')
+}
+
+export function setDeepgramApiKey(key: string): void {
+  setSecret('quietclaw:deepgram:api_key', key)
+}
+
+export function getAnthropicApiKey(): string | null {
+  if (process.env.ANTHROPIC_API_KEY) {
+    return process.env.ANTHROPIC_API_KEY
+  }
+  return getSecret('quietclaw:anthropic:api_key')
+}
+
+export function setAnthropicApiKey(key: string): void {
+  setSecret('quietclaw:anthropic:api_key', key)
+}
+
+export function getCalendarRefreshToken(email: string): string | null {
+  return getSecret(`quietclaw:calendar:${email}:refresh_token`)
+}
+
+export function setCalendarRefreshToken(email: string, token: string): void {
+  setSecret(`quietclaw:calendar:${email}:refresh_token`, token)
+}
+
+/** Get or create the API auth token for the local REST API */
+export function getApiAuthToken(): string {
+  let token = getSecret('quietclaw:api:auth_token')
+  if (!token) {
+    token = randomBytes(32).toString('hex')
+    setSecret('quietclaw:api:auth_token', token)
+    log.info('[Secrets] Generated new API auth token')
+  }
+  return token
+}
