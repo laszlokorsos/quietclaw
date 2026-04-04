@@ -280,6 +280,18 @@ export default function Settings({
 
       <hr className="border-border mb-8" />
 
+      {/* Recording Laws */}
+      <section className="mb-8">
+        <h3 className="text-sm font-medium text-text-secondary mb-2">Recording & Consent</h3>
+        <div className="bg-surface-secondary rounded-xl px-4 py-3">
+          <p className="text-xs text-text-secondary leading-relaxed">
+            Recording laws vary by jurisdiction. Some locations require all-party consent before recording a conversation. You are responsible for understanding and complying with applicable laws. QuietClaw includes an optional consent notification feature that can announce recording to participants — see your config file for <code className="text-text-muted">consent_message</code> options.
+          </p>
+        </div>
+      </section>
+
+      <hr className="border-border mb-8" />
+
       {/* Info */}
       <section>
         <h3 className="text-sm font-medium text-text-secondary mb-2">About</h3>

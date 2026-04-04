@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from 'react'
 
 const api = (window as any).quietclaw
 
-type Step = 'permission' | 'deepgram' | 'calendar' | 'anthropic'
+type Step = 'consent' | 'permission' | 'deepgram' | 'calendar' | 'anthropic'
 
-const STEPS: Step[] = ['permission', 'deepgram', 'calendar', 'anthropic']
+const STEPS: Step[] = ['consent', 'permission', 'deepgram', 'calendar', 'anthropic']
 
 export default function Onboarding({ onComplete }: { onComplete: () => void }) {
-  const [step, setStep] = useState<Step>('permission')
+  const [step, setStep] = useState<Step>('consent')
+  const [consentAcknowledged, setConsentAcknowledged] = useState(false)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [checking, setChecking] = useState(false)
   const [deepgramKey, setDeepgramKey] = useState('')
@@ -108,12 +109,15 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold tracking-tight mb-1">
+            {step === 'consent' && 'Before You Begin'}
             {step === 'permission' && 'Screen Recording Permission'}
             {step === 'deepgram' && 'Speech-to-Text'}
             {step === 'calendar' && 'Google Calendar'}
             {step === 'anthropic' && 'AI Summarization'}
           </h1>
           <p className="text-sm text-text-secondary">
+            {step === 'consent' &&
+              'QuietClaw records audio from your meetings. Please be aware of your responsibilities.'}
             {step === 'permission' &&
               'QuietClaw needs Screen & System Audio Recording permission to capture meeting audio.'}
             {step === 'deepgram' &&
@@ -127,6 +131,40 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
 
         {/* Step content */}
         <div className="mb-8">
+          {step === 'consent' && (
+            <div className="space-y-4">
+              <div className="bg-surface-secondary rounded-xl p-4 space-y-3">
+                <div className="flex gap-3">
+                  <svg className="w-5 h-5 text-text-muted shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                  <p className="text-sm text-text-secondary leading-relaxed">
+                    Recording laws vary by location. Some jurisdictions require the consent of all participants before a conversation can be recorded, while others require only one party's consent.
+                  </p>
+                </div>
+                <p className="text-sm text-text-secondary leading-relaxed pl-8">
+                  It is your responsibility to understand and comply with the recording and consent laws that apply in your jurisdiction and the jurisdictions of other meeting participants.
+                </p>
+                <p className="text-sm text-text-secondary leading-relaxed pl-8">
+                  QuietClaw includes an optional consent notification feature (see Settings) that can announce recording to other participants.
+                </p>
+              </div>
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={consentAcknowledged}
+                  onChange={(e) => setConsentAcknowledged(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-border accent-accent"
+                />
+                <span className="text-sm text-text-primary leading-relaxed">
+                  I understand that I am responsible for complying with applicable recording and consent laws when using this software.
+                </span>
+              </label>
+            </div>
+          )}
+
           {step === 'permission' && (
             <div className="space-y-4">
               {hasPermission === null || checking ? (
@@ -265,6 +303,15 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           <div className="text-xs text-text-muted">
             Step {stepIndex + 1} of {STEPS.length}
           </div>
+          {step === 'consent' && (
+            <button
+              onClick={goNext}
+              disabled={!consentAcknowledged}
+              className="px-5 py-2 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover disabled:opacity-40 disabled:cursor-default transition-colors"
+            >
+              Continue
+            </button>
+          )}
           {step === 'permission' && (
             <button
               onClick={goNext}

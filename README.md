@@ -11,6 +11,14 @@ QuietClaw is an open-source macOS app that silently captures, transcribes, and s
 - **Agentic-native** — local REST API + filesystem output designed for Claude Code, n8n, or any automation tool
 - **Open-source** — Apache 2.0, fully extensible, provider-agnostic
 
+## Recording & Consent
+
+QuietClaw records audio from your meetings. Recording laws vary by jurisdiction — some locations require only one party's consent, while others require the consent of all participants. **It is your responsibility to understand and comply with the laws that apply to you and the people you're recording.**
+
+QuietClaw includes a configurable consent notification feature (`consent_message` in config) that can announce recording to other meeting participants. We recommend enabling this wherever appropriate.
+
+This software is provided as a tool. How you use it is your responsibility.
+
 ## Features
 
 - **Silent audio capture** via Core Audio Taps (mic + system audio, no virtual device)
