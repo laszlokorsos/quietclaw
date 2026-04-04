@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import RecoveryBanner from './RecoveryBanner'
 
 const api = (window as any).quietclaw
@@ -35,6 +35,17 @@ interface CalendarEvent {
   platform?: string
   meetingLink?: string
   meetingLinks?: MeetingLink[]
+}
+
+/** Sanitize user input for FTS5 MATCH: strip operators, append * for prefix matching */
+function sanitizeFtsQuery(raw: string): string {
+  let q = raw.replace(/["\*\+\-\^():/\\]/g, ' ')
+  q = q.replace(/\s+/g, ' ').trim()
+  q = q.replace(/\b(AND|OR|NOT|NEAR)\b/gi, '').trim()
+  if (!q) return ''
+  const tokens = q.split(' ')
+  tokens[tokens.length - 1] += '*'
+  return tokens.join(' ')
 }
 
 /** Platform icon — renders the actual brand logo via data URI, with generic fallback */
@@ -81,51 +92,72 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
   const [search, setSearch] = useState('')
   const [loadingMeetings, setLoadingMeetings] = useState(true)
   const [loadingCalendar, setLoadingCalendar] = useState(true)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    loadData()
+    loadMeetings()
+    loadCalendar()
     if (api) {
-      const unsubMeeting = api.on('meeting-processed', () => loadData())
-      const unsubCalendar = api.on('calendar-synced', () => {
-        api.calendar.events()
-          .then((events: CalendarEvent[]) => {
-            const now = new Date()
-            const endOfDay = new Date(now)
-            endOfDay.setHours(23, 59, 59, 999)
-
-            const upcomingEvents = (events ?? [])
-              .filter((e: CalendarEvent) => {
-                const end = new Date(e.endTime)
-                const start = new Date(e.startTime)
-                return end > now && start <= endOfDay
-              })
-              .sort((a: CalendarEvent, b: CalendarEvent) =>
-                new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-              )
-            setUpcoming(upcomingEvents)
-          })
-          .catch(() => {})
-          .finally(() => setLoadingCalendar(false))
-      })
+      const unsubMeeting = api.on('meeting-processed', () => { loadMeetings(); loadCalendar() })
+      const unsubCalendar = api.on('calendar-synced', () => loadCalendar())
       return () => { unsubMeeting(); unsubCalendar() }
     }
   }, [])
 
-  async function loadData() {
-    if (!api) {
-      setLoadingMeetings(false)
-      setLoadingCalendar(false)
+  // Debounced live search
+  useEffect(() => {
+    if (!api) return
+
+    const trimmed = search.trim()
+    if (!trimmed) {
+      // Empty query — restore full list
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      loadMeetings()
       return
     }
 
-    setLoadingMeetings(true)
-    setLoadingCalendar(true)
+    const sanitized = sanitizeFtsQuery(trimmed)
+    if (!sanitized) {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      loadMeetings()
+      return
+    }
 
+    debounceRef.current = setTimeout(() => {
+      api.meetings.search(sanitized)
+        .then((rows: Meeting[]) => setMeetings(rows ?? []))
+        .catch(() => setMeetings([]))
+    }, 200)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [search])
+
+  function fireSearchNow() {
+    if (!api) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    const trimmed = search.trim()
+    if (!trimmed) { loadMeetings(); return }
+    const sanitized = sanitizeFtsQuery(trimmed)
+    if (!sanitized) { loadMeetings(); return }
+    api.meetings.search(sanitized)
+      .then((rows: Meeting[]) => setMeetings(rows ?? []))
+      .catch(() => setMeetings([]))
+  }
+
+  function loadMeetings() {
+    if (!api) { setLoadingMeetings(false); return }
+    setLoadingMeetings(true)
     api.meetings.list(50)
       .then((rows: Meeting[]) => setMeetings(rows ?? []))
       .catch((err: unknown) => { console.error('[MeetingList] Failed to load meetings:', err); setMeetings([]) })
       .finally(() => setLoadingMeetings(false))
+  }
 
+  function loadCalendar() {
+    if (!api) { setLoadingCalendar(false); return }
+    setLoadingCalendar(true)
     api.calendar.events()
       .then((events: CalendarEvent[]) => {
         const now = new Date()
@@ -145,22 +177,6 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
       })
       .catch(() => setUpcoming([]))
       .finally(() => setLoadingCalendar(false))
-  }
-
-  async function handleSearch() {
-    if (!api || !search.trim()) {
-      loadData()
-      return
-    }
-    setLoadingMeetings(true)
-    try {
-      const rows = await api.meetings.search(search.trim())
-      setMeetings(rows ?? [])
-      setUpcoming([])
-    } catch {
-      setMeetings([])
-    }
-    setLoadingMeetings(false)
   }
 
   function formatTime(iso: string) {
@@ -206,21 +222,36 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
       <RecoveryBanner onSelectMeeting={onSelect} />
 
       {/* Search */}
-      <div className="mb-6">
+      <div className="mb-6 relative">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
         <input
           type="text"
           placeholder="Search meetings..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          className="w-full px-4 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
+          onKeyDown={(e) => e.key === 'Enter' && fireSearchNow()}
+          className={`w-full pl-9 ${search ? 'pr-9' : 'pr-4'} py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors`}
         />
+        {search && (
+          <button
+            onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* Upcoming Today */}
-      <div className="mb-8">
-        <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">
-          Upcoming Today
+      {/* Upcoming Today — hidden during active search */}
+      {!search.trim() && <div className="mb-8">
+        <h3 className="text-xs font-medium text-text-secondary mb-4">
+          Upcoming today
         </h3>
         {loadingCalendar ? (
           <div className="flex items-center gap-2 px-4 py-3 bg-surface-secondary/50 rounded-xl">
@@ -235,7 +266,7 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
               return (
                 <div
                   key={e.eventId}
-                  className={`px-4 py-3.5 rounded-xl transition-colors ${
+                  className={`px-4 py-4 rounded-xl transition-colors ${
                     now ? 'bg-now-bg border border-now-border' : 'bg-surface-secondary'
                   }`}
                 >
@@ -270,7 +301,7 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
         ) : (
           <p className="text-xs text-text-muted px-4 py-2">No more meetings today</p>
         )}
-      </div>
+      </div>}
 
       {/* Past recordings */}
       {loadingMeetings ? (
@@ -281,15 +312,15 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
       ) : meetings.length > 0 ? (
         Object.entries(grouped).map(([date, items]) => (
           <div key={date} className="mb-8">
-            <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">
+            <h3 className="text-xs font-medium text-text-secondary mb-4">
               {formatDate(items[0].startTime)}
             </h3>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {items.map((m) => (
                 <button
                   key={m.id}
                   onClick={() => onSelect(m.id)}
-                  className="w-full text-left px-4 py-3.5 rounded-xl hover:bg-surface-secondary transition-colors group"
+                  className="w-full text-left px-4 py-4 rounded-xl hover:bg-surface-secondary transition-colors group"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -313,9 +344,13 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
           </div>
         ))
       ) : allLoaded ? (
-        <div className="text-center py-12">
+        <div className="text-center py-16">
+          <svg className="w-8 h-8 text-text-muted/40 mx-auto mb-4" viewBox="0 0 32 32" fill="currentColor">
+            <path d="M 26 14 C 23.5 10, 19 7, 14 5.5 C 9 4.5, 5 7, 4 12 C 3 17, 5 22, 9 24 L 9 18 C 9 14, 11.5 11, 15 10.5 C 18 10, 22 11, 26 14 Z" />
+            <path d="M 26 15 C 22 17.5, 18 18.5, 15 18 C 11.5 17.5, 9 19.5, 9 22 L 9 24 C 13 26.5, 18 27.5, 22 26.5 C 26 25.5, 28.5 22, 28 18.5 C 28 16.5, 27 15, 26 15 Z" />
+          </svg>
           <p className="text-text-secondary text-sm font-medium">No recordings yet</p>
-          <p className="text-text-secondary text-xs mt-2 max-w-xs mx-auto leading-relaxed">
+          <p className="text-text-muted text-xs mt-2 max-w-xs mx-auto leading-relaxed">
             QuietClaw auto-records when it detects an active Google Meet or Zoom call.
             Just join a meeting and it will appear here.
           </p>

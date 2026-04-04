@@ -258,20 +258,23 @@ export function getTodayMeetings(): MeetingRow[] {
 export function searchMeetings(query: string, limit = 20): MeetingRow[] {
   const d = getDb()
 
-  // Use FTS5 MATCH to find matching meeting IDs, then join with main table
-  const rows = d
-    .prepare(
-      `
-    SELECT m.* FROM meetings m
-    INNER JOIN meetings_fts fts ON m.id = fts.id
-    WHERE meetings_fts MATCH ?
-    ORDER BY m.start_time DESC
-    LIMIT ?
-  `
-    )
-    .all(query, limit) as MeetingRow[]
-
-  return rows
+  try {
+    // Use FTS5 MATCH to find matching meeting IDs, then join with main table
+    return d
+      .prepare(
+        `
+      SELECT m.* FROM meetings m
+      INNER JOIN meetings_fts fts ON m.id = fts.id
+      WHERE meetings_fts MATCH ?
+      ORDER BY m.start_time DESC
+      LIMIT ?
+    `
+      )
+      .all(query, limit) as MeetingRow[]
+  } catch (err) {
+    log.warn(`[DB] FTS search failed for query "${query}":`, err)
+    return []
+  }
 }
 
 /** Get the meeting directory for a given meeting ID */

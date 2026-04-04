@@ -185,7 +185,7 @@ export default function MeetingDetail({
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-5 border-b border-border">
+      <div className="flex gap-1 mb-5 border-b border-border/40">
         {(['transcript', 'summary', 'actions'] as const).map((t) => (
           <button
             key={t}
@@ -206,7 +206,7 @@ export default function MeetingDetail({
 
       {/* Tab content */}
       {tab === 'transcript' && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {transcript.segments.map((seg, i) => (
             <div key={i} className="group">
               <div className="flex items-baseline gap-2 mb-0.5">
@@ -227,7 +227,7 @@ export default function MeetingDetail({
         summary ? (
           <div className="space-y-6">
             <div>
-              <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
+              <h3 className="text-xs font-medium text-text-secondary mb-2">
                 Executive Summary
               </h3>
               <p className="text-sm text-text-secondary leading-relaxed">{summary.executive_summary}</p>
@@ -235,12 +235,12 @@ export default function MeetingDetail({
 
             {summary.topics.length > 0 && (
               <div>
-                <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-medium text-text-secondary mb-2">
                   Topics
                 </h3>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {summary.topics.map((topic, i) => (
-                    <div key={i} className="bg-surface-secondary rounded-xl p-4">
+                    <div key={i} className="border-l-2 border-accent/30 pl-4">
                       <p className="text-sm font-medium text-text-primary">{topic.topic}</p>
                       <p className="text-xs text-text-muted mt-0.5">{topic.participants.join(', ')}</p>
                       <p className="text-sm text-text-secondary mt-1.5">{topic.summary}</p>
@@ -252,7 +252,7 @@ export default function MeetingDetail({
 
             {summary.decisions.length > 0 && (
               <div>
-                <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-medium text-text-secondary mb-2">
                   Decisions
                 </h3>
                 <ul className="space-y-1.5">
@@ -268,7 +268,7 @@ export default function MeetingDetail({
 
             {summary.sentiment && (
               <div>
-                <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-medium text-text-secondary mb-2">
                   Tone
                 </h3>
                 <p className="text-sm text-text-secondary">{summary.sentiment}</p>
@@ -307,9 +307,9 @@ export default function MeetingDetail({
 
       {tab === 'actions' && (
         actions.length > 0 ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {actions.map((action) => (
-              <div key={action.id} className="bg-surface-secondary rounded-xl p-4 flex items-start gap-3">
+              <div key={action.id} className="bg-surface-secondary rounded-xl p-5 flex items-start gap-3">
                 <span className={`text-xs px-1.5 py-0.5 rounded-lg font-medium shrink-0 mt-0.5 ${
                   action.priority === 'high' ? 'bg-priority-high-bg text-priority-high-text' :
                   action.priority === 'medium' ? 'bg-priority-medium-bg text-priority-medium-text' :

@@ -71,7 +71,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-surface text-text-primary flex flex-col">
-      <header className="flex items-center justify-between px-6 py-3 border-b border-border/60 sticky top-0 z-10 bg-gradient-to-b from-surface via-surface to-surface/80 backdrop-blur-md">
+      <header className="flex items-center justify-between px-6 py-3 border-b border-border/30 sticky top-0 z-10 bg-surface">
         <div className="flex items-center gap-2.5">
           <ClawIcon className="w-5 h-5 text-accent" />
           <h1 className="text-base font-semibold tracking-tight">QuietClaw</h1>
@@ -102,16 +102,18 @@ export default function App() {
       </header>
 
       <main className="flex-1 overflow-auto">
-        {view === 'settings' ? (
-          <Settings themePreference={preference} onThemeChange={setTheme} />
-        ) : selectedMeetingId ? (
-          <MeetingDetail
-            meetingId={selectedMeetingId}
-            onBack={() => setSelectedMeetingId(null)}
-          />
-        ) : (
-          <MeetingList onSelect={(id) => setSelectedMeetingId(id)} />
-        )}
+        <div className="max-w-3xl mx-auto">
+          {view === 'settings' ? (
+            <Settings themePreference={preference} onThemeChange={setTheme} />
+          ) : selectedMeetingId ? (
+            <MeetingDetail
+              meetingId={selectedMeetingId}
+              onBack={() => setSelectedMeetingId(null)}
+            />
+          ) : (
+            <MeetingList onSelect={(id) => setSelectedMeetingId(id)} />
+          )}
+        </div>
       </main>
     </div>
   )

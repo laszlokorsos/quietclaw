@@ -122,7 +122,7 @@ export default function Settings({
         </div>
       </section>
 
-      <hr className="border-border mb-8" />
+      <hr className="border-border/40 mb-8" />
 
       {/* Deepgram */}
       <section className="mb-8">
@@ -203,7 +203,7 @@ export default function Settings({
         )}
       </section>
 
-      <hr className="border-border mb-8" />
+      <hr className="border-border/40 mb-8" />
 
       {/* Calendar */}
       <section className="mb-8">
@@ -257,7 +257,7 @@ export default function Settings({
         )}
       </section>
 
-      <hr className="border-border mb-8" />
+      <hr className="border-border/40 mb-8" />
 
       {/* Recording Location */}
       <section className="mb-8">
@@ -278,7 +278,7 @@ export default function Settings({
         </div>
       </section>
 
-      <hr className="border-border mb-8" />
+      <hr className="border-border/40 mb-8" />
 
       {/* Recording Laws */}
       <section className="mb-8">
@@ -290,7 +290,7 @@ export default function Settings({
         </div>
       </section>
 
-      <hr className="border-border mb-8" />
+      <hr className="border-border/40 mb-8" />
 
       {/* Info */}
       <section>

@@ -108,7 +108,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
 
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight mb-1">
+          <h1 className="text-2xl font-semibold tracking-tight mb-1">
             {step === 'consent' && 'Before You Begin'}
             {step === 'permission' && 'Screen Recording Permission'}
             {step === 'deepgram' && 'Speech-to-Text'}
