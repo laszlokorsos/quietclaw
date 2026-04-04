@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useToast } from '../contexts/ToastContext'
 import type { ThemePreference } from '../hooks/useTheme'
 
 const api = (window as any).quietclaw
@@ -26,6 +27,9 @@ export default function Settings({
   const [saved, setSaved] = useState<string | null>(null)
   const [connectingCalendar, setConnectingCalendar] = useState(false)
   const [dataDir, setDataDir] = useState('')
+  const [showDeepgramKey, setShowDeepgramKey] = useState(false)
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false)
+  const { addToast } = useToast()
 
   useEffect(() => {
     loadState()
@@ -46,8 +50,10 @@ export default function Settings({
     await api.secrets.setDeepgramKey(deepgramInput.trim())
     setHasDeepgramKey(true)
     setDeepgramInput('')
+    setShowDeepgramKey(false)
     setSaving(null)
     setSaved('deepgram')
+    addToast('Deepgram API key saved')
     setTimeout(() => setSaved(null), 2000)
   }
 
@@ -57,8 +63,10 @@ export default function Settings({
     await api.secrets.setAnthropicKey(anthropicInput.trim())
     setHasAnthropicKey(true)
     setAnthropicInput('')
+    setShowAnthropicKey(false)
     setSaving(null)
     setSaved('anthropic')
+    addToast('Anthropic API key saved')
     setTimeout(() => setSaved(null), 2000)
   }
 
@@ -145,14 +153,34 @@ export default function Settings({
           </div>
         ) : (
           <div className="flex gap-2">
-            <input
-              type="password"
-              placeholder="Paste your Deepgram API key"
-              value={deepgramInput}
-              onChange={(e) => setDeepgramInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && saveDeepgramKey()}
-              className="flex-1 px-4 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
-            />
+            <div className="flex-1 relative">
+              <input
+                type={showDeepgramKey ? 'text' : 'password'}
+                placeholder="Paste your Deepgram API key"
+                value={deepgramInput}
+                onChange={(e) => setDeepgramInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveDeepgramKey()}
+                className="w-full px-4 pr-10 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
+              />
+              {deepgramInput && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeepgramKey(!showDeepgramKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+                  title={showDeepgramKey ? 'Hide key' : 'Show key'}
+                >
+                  {showDeepgramKey ? (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
             <button
               onClick={saveDeepgramKey}
               disabled={!deepgramInput.trim() || saving === 'deepgram'}
@@ -184,14 +212,34 @@ export default function Settings({
           </div>
         ) : (
           <div className="flex gap-2">
-            <input
-              type="password"
-              placeholder="Paste your Anthropic API key"
-              value={anthropicInput}
-              onChange={(e) => setAnthropicInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && saveAnthropicKey()}
-              className="flex-1 px-4 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
-            />
+            <div className="flex-1 relative">
+              <input
+                type={showAnthropicKey ? 'text' : 'password'}
+                placeholder="Paste your Anthropic API key"
+                value={anthropicInput}
+                onChange={(e) => setAnthropicInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveAnthropicKey()}
+                className="w-full px-4 pr-10 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
+              />
+              {anthropicInput && (
+                <button
+                  type="button"
+                  onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+                  title={showAnthropicKey ? 'Hide key' : 'Show key'}
+                >
+                  {showAnthropicKey ? (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
             <button
               onClick={saveAnthropicKey}
               disabled={!anthropicInput.trim() || saving === 'anthropic'}

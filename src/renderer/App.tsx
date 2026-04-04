@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import MeetingList from './components/MeetingList'
 import MeetingDetail from './components/MeetingDetail'
 import Settings from './components/Settings'
 import StatusBar from './components/StatusBar'
 import Onboarding from './components/Onboarding'
+import ToastStack from './components/Toast'
+import { ToastProvider } from './contexts/ToastContext'
 import { useTheme } from './hooks/useTheme'
 
 type View = 'meetings' | 'settings'
@@ -40,6 +42,27 @@ export default function App() {
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null)
   const { preference, setTheme } = useTheme()
 
+  const goBack = useCallback(() => {
+    if (selectedMeetingId) setSelectedMeetingId(null)
+  }, [selectedMeetingId])
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Cmd+K or / (when not in input) → focus search
+      if ((e.metaKey && e.key === 'k') || (e.key === '/' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement))) {
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent('qc:focus-search'))
+      }
+      // Escape → go back from meeting detail
+      if (e.key === 'Escape' && selectedMeetingId) {
+        goBack()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedMeetingId, goBack])
+
   useEffect(() => {
     if (!api) return
     api.config.get().then((config: any) => {
@@ -66,10 +89,16 @@ export default function App() {
   }
 
   if (!onboardingComplete) {
-    return <Onboarding onComplete={() => setOnboardingComplete(true)} />
+    return (
+      <ToastProvider>
+        <Onboarding onComplete={() => setOnboardingComplete(true)} />
+        <ToastStack />
+      </ToastProvider>
+    )
   }
 
   return (
+    <ToastProvider>
     <div className="min-h-screen bg-surface text-text-primary flex flex-col">
       <header className="flex items-center justify-between px-6 py-3 border-b border-border/30 sticky top-0 z-10 bg-surface">
         <div className="flex items-center gap-2.5">
@@ -115,6 +144,8 @@ export default function App() {
           )}
         </div>
       </main>
+      <ToastStack />
     </div>
+    </ToastProvider>
   )
 }

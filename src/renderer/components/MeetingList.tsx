@@ -93,6 +93,16 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
   const [loadingMeetings, setLoadingMeetings] = useState(true)
   const [loadingCalendar, setLoadingCalendar] = useState(true)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Listen for Cmd+K / "/" focus-search events from App.tsx
+  useEffect(() => {
+    function handleFocusSearch() {
+      searchInputRef.current?.focus()
+    }
+    window.addEventListener('qc:focus-search', handleFocusSearch)
+    return () => window.removeEventListener('qc:focus-search', handleFocusSearch)
+  }, [])
 
   useEffect(() => {
     loadMeetings()
@@ -228,11 +238,15 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
           <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
         <input
+          ref={searchInputRef}
           type="text"
           placeholder="Search meetings..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && fireSearchNow()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') fireSearchNow()
+            if (e.key === 'Escape') { setSearch(''); searchInputRef.current?.blur() }
+          }}
           className={`w-full pl-9 ${search ? 'pr-9' : 'pr-4'} py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors`}
         />
         {search && (
@@ -305,9 +319,13 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
 
       {/* Past recordings */}
       {loadingMeetings ? (
-        <div className="flex items-center gap-2 px-4 py-3">
-          <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
-          <span className="text-xs text-text-muted">Loading recordings...</span>
+        <div className="space-y-1.5">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="px-4 py-4 rounded-xl">
+              <div className="h-4 w-48 bg-surface-secondary rounded animate-pulse" />
+              <div className="h-3 w-32 bg-surface-secondary rounded animate-pulse mt-2" />
+            </div>
+          ))}
         </div>
       ) : meetings.length > 0 ? (
         Object.entries(grouped).map(([date, items]) => (
@@ -344,17 +362,33 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
           </div>
         ))
       ) : allLoaded ? (
-        <div className="text-center py-16">
-          <svg className="w-8 h-8 text-text-muted/40 mx-auto mb-4" viewBox="0 0 32 32" fill="currentColor">
-            <path d="M 26 14 C 23.5 10, 19 7, 14 5.5 C 9 4.5, 5 7, 4 12 C 3 17, 5 22, 9 24 L 9 18 C 9 14, 11.5 11, 15 10.5 C 18 10, 22 11, 26 14 Z" />
-            <path d="M 26 15 C 22 17.5, 18 18.5, 15 18 C 11.5 17.5, 9 19.5, 9 22 L 9 24 C 13 26.5, 18 27.5, 22 26.5 C 26 25.5, 28.5 22, 28 18.5 C 28 16.5, 27 15, 26 15 Z" />
-          </svg>
-          <p className="text-text-secondary text-sm font-medium">No recordings yet</p>
-          <p className="text-text-muted text-xs mt-2 max-w-xs mx-auto leading-relaxed">
-            QuietClaw auto-records when it detects an active Google Meet or Zoom call.
-            Just join a meeting and it will appear here.
-          </p>
-        </div>
+        search.trim() ? (
+          <div className="text-center py-16">
+            <svg className="w-8 h-8 text-text-muted/40 mx-auto mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <p className="text-text-secondary text-sm font-medium">No results for &ldquo;{search.trim()}&rdquo;</p>
+            <button
+              onClick={() => setSearch('')}
+              className="text-xs text-accent hover:text-accent-hover mt-3 transition-colors"
+            >
+              Clear search
+            </button>
+          </div>
+        ) : (
+          <div className="text-center py-16">
+            <svg className="w-8 h-8 text-text-muted/40 mx-auto mb-4" viewBox="0 0 32 32" fill="currentColor">
+              <path d="M 26 14 C 23.5 10, 19 7, 14 5.5 C 9 4.5, 5 7, 4 12 C 3 17, 5 22, 9 24 L 9 18 C 9 14, 11.5 11, 15 10.5 C 18 10, 22 11, 26 14 Z" />
+              <path d="M 26 15 C 22 17.5, 18 18.5, 15 18 C 11.5 17.5, 9 19.5, 9 22 L 9 24 C 13 26.5, 18 27.5, 22 26.5 C 26 25.5, 28.5 22, 28 18.5 C 28 16.5, 27 15, 26 15 Z" />
+            </svg>
+            <p className="text-text-secondary text-sm font-medium">No recordings yet</p>
+            <p className="text-text-muted text-xs mt-2 max-w-xs mx-auto leading-relaxed">
+              QuietClaw auto-records when it detects an active Google Meet or Zoom call.
+              Just join a meeting and it will appear here.
+            </p>
+          </div>
+        )
       ) : null}
     </div>
   )

@@ -21,6 +21,25 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
 
   const stepIndex = STEPS.indexOf(step)
 
+  function goBack() {
+    if (stepIndex > 0) setStep(STEPS[stepIndex - 1])
+  }
+
+  // Enter key to proceed (skip when target is an input — inputs have their own Enter handlers)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Enter') return
+      if (e.target instanceof HTMLInputElement) return
+
+      if (step === 'consent' && consentAcknowledged) goNext()
+      else if (step === 'permission') goNext()
+      else if (step === 'deepgram' && deepgramSaved) goNext()
+      else if (step === 'calendar') goNext()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [step, consentAcknowledged, deepgramSaved])
+
   const checkPermission = useCallback(async () => {
     if (!api) return
     setChecking(true)
@@ -287,8 +306,18 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
 
         {/* Navigation */}
         <div className="flex justify-between items-center">
-          <div className="text-xs text-text-muted">
-            Step {stepIndex + 1} of {STEPS.length}
+          <div className="flex items-center gap-4">
+            {stepIndex > 0 && (
+              <button
+                onClick={goBack}
+                className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+              >
+                &larr; Back
+              </button>
+            )}
+            <span className="text-xs text-text-muted">
+              Step {stepIndex + 1} of {STEPS.length}
+            </span>
           </div>
           {step === 'consent' && (
             <button

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useToast } from '../contexts/ToastContext'
 
 const api = (window as any).quietclaw
 
@@ -61,10 +62,23 @@ export default function MeetingDetail({
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const { addToast } = useToast()
 
   useEffect(() => {
     loadData()
   }, [meetingId])
+
+  // Escape closes delete dialog (and stops App.tsx from navigating back)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && showDeleteConfirm) {
+        e.stopImmediatePropagation()
+        setShowDeleteConfirm(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown, true) // capture phase
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [showDeleteConfirm])
 
   async function loadData() {
     if (!api) return
@@ -94,8 +108,10 @@ export default function MeetingDetail({
       setSummary(result.summary)
       setActions(result.actions ?? [])
       setTab('summary')
+      addToast('Summary generated')
     } catch (err) {
       console.error('Summarization failed:', err)
+      addToast('Summarization failed', 'error')
     }
     setSummarizing(false)
   }
@@ -105,12 +121,26 @@ export default function MeetingDetail({
     setDeleting(true)
     try {
       await api.meetings.delete(meetingId)
+      addToast('Meeting deleted')
       onBack()
     } catch (err) {
       console.error('Delete failed:', err)
+      addToast('Failed to delete meeting', 'error')
       setDeleting(false)
       setShowDeleteConfirm(false)
     }
+  }
+
+  function copySegment(seg: Segment) {
+    navigator.clipboard.writeText(seg.text).then(() => addToast('Copied to clipboard'))
+  }
+
+  function copyFullTranscript() {
+    if (!transcript) return
+    const text = transcript.segments
+      .map((seg) => `${seg.speaker} (${formatTimestamp(seg.start)})\n${seg.text}`)
+      .join('\n\n')
+    navigator.clipboard.writeText(text).then(() => addToast('Transcript copied'))
   }
 
   function formatTimestamp(seconds: number) {
@@ -120,7 +150,25 @@ export default function MeetingDetail({
   }
 
   if (loading) {
-    return <div className="p-6 text-text-muted text-sm">Loading...</div>
+    return (
+      <div className="p-6">
+        <div className="h-4 w-32 bg-surface-secondary rounded animate-pulse mb-4" />
+        <div className="h-6 w-64 bg-surface-secondary rounded animate-pulse mb-2" />
+        <div className="h-3 w-48 bg-surface-secondary rounded animate-pulse mb-6" />
+        <div className="flex gap-4 mb-6 border-b border-border/40 pb-2">
+          {[1, 2, 3].map((i) => <div key={i} className="h-4 w-16 bg-surface-secondary rounded animate-pulse" />)}
+        </div>
+        <div className="space-y-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i}>
+              <div className="h-3 w-24 bg-surface-secondary rounded animate-pulse mb-1.5" />
+              <div className="h-4 w-full bg-surface-secondary rounded animate-pulse" />
+              <div className="h-4 w-3/4 bg-surface-secondary rounded animate-pulse mt-1" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   if (!meta || !transcript) {
@@ -206,20 +254,44 @@ export default function MeetingDetail({
 
       {/* Tab content */}
       {tab === 'transcript' && (
-        <div className="space-y-4">
-          {transcript.segments.map((seg, i) => (
-            <div key={i} className="group">
-              <div className="flex items-baseline gap-2 mb-0.5">
-                <span className={`text-xs font-medium ${
-                  seg.source === 'microphone' ? 'text-accent' : 'text-speaker-remote'
-                }`}>
-                  {seg.speaker}
-                </span>
-                <span className="text-xs text-text-muted">{formatTimestamp(seg.start)}</span>
+        <div>
+          <div className="flex justify-end mb-3">
+            <button
+              onClick={copyFullTranscript}
+              className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5,15H4a2,2,0,0,1-2-2V4A2,2,0,0,1,4,2H15a2,2,0,0,1,2,2V5" />
+              </svg>
+              Copy all
+            </button>
+          </div>
+          <div className="space-y-4">
+            {transcript.segments.map((seg, i) => (
+              <div key={i} className="group relative">
+                <div className="flex items-baseline gap-2 mb-0.5">
+                  <span className={`text-xs font-medium ${
+                    seg.source === 'microphone' ? 'text-accent' : 'text-speaker-remote'
+                  }`}>
+                    {seg.speaker}
+                  </span>
+                  <span className="text-xs text-text-muted">{formatTimestamp(seg.start)}</span>
+                </div>
+                <p className="text-sm text-text-secondary leading-relaxed pr-8">{seg.text}</p>
+                <button
+                  onClick={() => copySegment(seg)}
+                  className="absolute top-0 right-0 p-1 rounded text-text-muted hover:text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Copy segment"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5,15H4a2,2,0,0,1-2-2V4A2,2,0,0,1,4,2H15a2,2,0,0,1,2,2V5" />
+                  </svg>
+                </button>
               </div>
-              <p className="text-sm text-text-secondary leading-relaxed">{seg.text}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
