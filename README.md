@@ -20,7 +20,7 @@ QuietClaw records audio from your meetings. Recording laws vary by jurisdiction 
 - **Silent audio capture** via Core Audio Taps (mic + system audio, no virtual device)
 - **Auto-detection** of Google Meet, Zoom, and Teams calls via window title and mic activity scanning
 - **Real-time transcription** via Deepgram with multi-speaker diarization
-- **Speaker identification** — mic audio is always "you"; system audio speakers separated by Deepgram's diarization; 2-person calls are fully named via calendar attendees
+- **Speaker identification** — mic audio is always "you"; system audio speakers separated by Deepgram's diarization; 2-person calls are fully named via calendar attendees; 3+ person calls support manual speaker mapping with representative quotes and calendar suggestions
 - **Google Calendar integration** — multi-account OAuth, automatic event matching, attendee extraction
 - **Optional AI summarization** — Claude Haiku by default (executive summary, topics, decisions, action items)
 - **Structured output** — JSON + Markdown files per meeting, indexed in SQLite
@@ -204,18 +204,19 @@ cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json | jq '.'
 - [x] Auto-detection of Google Meet, Zoom, Teams calls
 - [x] Real-time Deepgram STT with diarization
 - [x] Google Calendar OAuth (multi-account)
-- [x] Speaker identification (Phase 1: mic=you, system=Speaker A/B/C, 2-person=fully named)
+- [x] Speaker identification (mic=you, 2-person=fully named via calendar, 3+=manual mapping)
+- [x] Manual speaker mapping — identify Speaker A/B/C with representative quotes and calendar suggestions
 - [x] Claude Haiku summarization (optional)
 - [x] Crash recovery for orphaned recordings
 - [x] Local REST API with full-text search
 - [x] Menu bar tray app with recording status
-- [x] Meeting list UI with join buttons and platform icons
+- [x] Meeting list UI with live search, join buttons, and platform icons
+- [x] Keyboard shortcuts, toast notifications, loading skeletons, copyable transcripts
 - [x] 58 passing tests, CI/CD via GitHub Actions
 
 ## Roadmap
 
 ### Phase 2
-- **Manual speaker mapping** — post-meeting UI to assign names to Speaker A/B/C
 - **Additional STT providers** — AssemblyAI, OpenAI Whisper API, local whisper.cpp
 - **Additional summarizers** — OpenAI GPT, Ollama (local)
 - **Real-time transcript display** during calls
