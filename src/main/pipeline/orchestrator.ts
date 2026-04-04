@@ -17,12 +17,16 @@ import { DeepgramStreamingProvider } from './stt/deepgram'
 import { SpeakerIdentifier } from './speaker-id'
 import { writeMeetingFiles } from '../storage/files'
 import { indexMeeting } from '../storage/db'
+import { matchRecordingToEvent } from '../calendar/matcher'
+import { syncNow } from '../calendar/sync'
+import type { MatchResult } from '../calendar/matcher'
 import type { StreamingSttProvider, SttResult } from './stt/provider'
 import type { AudioCaptureProvider, AudioChunk } from '../audio/types'
 import type {
   MeetingMetadata,
   Transcript,
-  TranscriptSegment
+  TranscriptSegment,
+  CalendarAttendee
 } from '../storage/models'
 
 /** Recording session state */
@@ -51,6 +55,7 @@ export class PipelineOrchestrator {
   private sessionId: string | null = null
   private startTime: Date | null = null
   private segments: TranscriptSegment[] = []
+  private calendarMatch: MatchResult | null = null
 
   // Track interim results by (channel, start) so later results replace earlier ones.
   // Key: "channel:start", Value: segment index in this.segments
@@ -111,13 +116,32 @@ export class PipelineOrchestrator {
     this.micBuffer = []
     this.sysBuffer = []
     this.chunksSent = 0
+    this.calendarMatch = null
 
     log.info(`[Pipeline] Starting session ${this.sessionId}`)
 
-    // Initialize speaker identifier
+    // Sync calendar and try to match current recording to an event
+    let attendees: CalendarAttendee[] = []
+    try {
+      await syncNow()
+      this.calendarMatch = matchRecordingToEvent(this.startTime)
+      if (this.calendarMatch) {
+        attendees = this.calendarMatch.event.attendees
+        log.info(
+          `[Pipeline] Matched calendar event: "${this.calendarMatch.event.title}" — ` +
+            `${attendees.length} attendees`
+        )
+      } else {
+        log.info('[Pipeline] No matching calendar event found')
+      }
+    } catch (err) {
+      log.warn('[Pipeline] Calendar sync/match failed (continuing without):', err)
+    }
+
+    // Initialize speaker identifier with calendar attendees
     this.speakerIdentifier = new SpeakerIdentifier({
-      userName
-      // Calendar attendees will be added in Milestone 4
+      userName,
+      attendees: attendees.length > 0 ? attendees : undefined
     })
 
     // Initialize STT provider
@@ -243,8 +267,10 @@ export class PipelineOrchestrator {
       language: config.stt.deepgram.language
     }
 
-    // Build metadata
-    const title = `Unscheduled call — ${this.startTime!.toLocaleDateString()} ${this.startTime!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    // Build metadata — use calendar event title if matched
+    const title = this.calendarMatch
+      ? this.calendarMatch.event.title
+      : `Unscheduled call — ${this.startTime!.toLocaleDateString()} ${this.startTime!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     const slug = this.generateSlug(title)
 
     const metadata: MeetingMetadata = {
@@ -254,6 +280,7 @@ export class PipelineOrchestrator {
       startTime: this.startTime!.toISOString(),
       endTime: endTime.toISOString(),
       duration,
+      calendarEvent: this.calendarMatch?.event,
       speakers: this.speakerIdentifier?.getSpeakers() ?? [],
       summarized: false,
       sttProvider: 'deepgram',
@@ -294,6 +321,7 @@ export class PipelineOrchestrator {
     this.sessionId = null
     this.startTime = null
     this.segments = []
+    this.calendarMatch = null
     this.sttProvider = null
     this.speakerIdentifier = null
     this.setState('idle')
@@ -479,6 +507,7 @@ export class PipelineOrchestrator {
     this.sessionId = null
     this.startTime = null
     this.segments = []
+    this.calendarMatch = null
     this.interimMap.clear()
     this.micBuffer = []
     this.sysBuffer = []

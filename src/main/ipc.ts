@@ -9,6 +9,8 @@ import { ipcMain } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig } from './config/settings'
 import { getDeepgramApiKey, getAnthropicApiKey } from './config/secrets'
+import { listAccounts, addGoogleAccount, removeAccount } from './calendar/accounts'
+import { getCachedEvents, syncNow } from './calendar/sync'
 import {
   listMeetings,
   getMeeting,
@@ -74,6 +76,29 @@ export function setupIpcHandlers(
     const { setAnthropicApiKey } = require('./config/secrets')
     setAnthropicApiKey(key)
     return true
+  })
+
+  // Calendar
+  ipcMain.handle('calendar:accounts', () => {
+    return listAccounts()
+  })
+
+  ipcMain.handle('calendar:addGoogle', async () => {
+    return addGoogleAccount()
+  })
+
+  ipcMain.handle('calendar:remove', (_event, email: string) => {
+    removeAccount(email)
+    return true
+  })
+
+  ipcMain.handle('calendar:events', () => {
+    return getCachedEvents()
+  })
+
+  ipcMain.handle('calendar:sync', async () => {
+    await syncNow()
+    return getCachedEvents()
   })
 
   // Meetings

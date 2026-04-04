@@ -22,6 +22,7 @@ import { setupTray } from './tray'
 import { PipelineOrchestrator } from './pipeline/orchestrator'
 import { initDatabase, closeDatabase } from './storage/db'
 import { startApiServer, stopApiServer } from './api/server'
+import { startCalendarSync, stopCalendarSync } from './calendar/sync'
 import type { AudioCaptureProvider } from './audio/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -88,6 +89,9 @@ app.whenReady().then(async () => {
   } catch (err) {
     log.error('[App] Failed to start API server:', err)
   }
+
+  // Start periodic calendar sync
+  startCalendarSync()
 
   // Set app user model id for Windows (future-proofing)
   electronApp.setAppUserModelId('com.quietclaw.app')
@@ -177,6 +181,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
+  stopCalendarSync()
   await stopApiServer()
   closeDatabase()
 

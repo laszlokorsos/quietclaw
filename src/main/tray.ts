@@ -11,6 +11,7 @@ import path from 'node:path'
 import log from 'electron-log/main'
 import { hasSecret } from './config/secrets'
 import { showApiKeyDialog } from './dialogs'
+import { listAccounts, addGoogleAccount, removeAccount } from './calendar/accounts'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
 let tray: Tray | null = null
@@ -107,7 +108,46 @@ export function setupTray(
               await showApiKeyDialog()
               updateMenu()
             }
-          }
+          },
+          { type: 'separator' },
+          ...(() => {
+            const accounts = listAccounts()
+            const accountItems = accounts.map((account) => ({
+              label: `✓ ${account.email}`,
+              submenu: [
+                {
+                  label: 'Remove Account',
+                  click: () => {
+                    removeAccount(account.email)
+                    updateMenu()
+                  }
+                }
+              ]
+            }))
+            return [
+              {
+                label: accounts.length > 0
+                  ? `Google Calendar (${accounts.length} connected)`
+                  : 'Google Calendar (not connected)',
+                submenu: [
+                  ...accountItems,
+                  ...(accountItems.length > 0 ? [{ type: 'separator' as const }] : []),
+                  {
+                    label: 'Connect Account...',
+                    click: async () => {
+                      try {
+                        const email = await addGoogleAccount()
+                        log.info(`[Tray] Calendar account added: ${email}`)
+                        updateMenu()
+                      } catch (err) {
+                        log.error('[Tray] Calendar OAuth failed:', err)
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          })()
         ]
       },
       { type: 'separator' },
