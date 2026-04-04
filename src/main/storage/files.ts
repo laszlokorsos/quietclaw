@@ -81,6 +81,9 @@ export function writeMeetingFiles(
     log.info(`[Storage] Wrote ${mdPath}`)
   }
 
+  // Update daily index
+  updateDailyIndex(path.dirname(meetingDir))
+
   return meetingDir
 }
 
@@ -124,6 +127,16 @@ export function writeSummaryFiles(
   }
   const metadataPath = path.join(meetingDir, 'metadata.json')
   atomicWrite(metadataPath, JSON.stringify(updatedMetadata, null, 2))
+
+  // Re-render summary.md with frontmatter
+  const config = loadConfig()
+  if (config.general.markdown_output) {
+    const summaryMdPath = path.join(meetingDir, 'summary.md')
+    atomicWrite(summaryMdPath, renderSummaryMarkdown(updatedMetadata, summary))
+  }
+
+  // Update daily index
+  updateDailyIndex(path.dirname(meetingDir))
 }
 
 /**
@@ -187,24 +200,30 @@ export function readActions(meetingDir: string): ActionItem[] | null {
  */
 export function deleteMeetingFiles(meetingDir: string): void {
   if (!fs.existsSync(meetingDir)) return
+  const parentDir = path.dirname(meetingDir)
   fs.rmSync(meetingDir, { recursive: true, force: true })
   log.info(`[Storage] Deleted meeting directory: ${meetingDir}`)
 
-  // Remove parent date directory if now empty
-  const parentDir = path.dirname(meetingDir)
+  // Update or remove daily index / parent date directory
   try {
-    const remaining = fs.readdirSync(parentDir)
+    const remaining = fs.readdirSync(parentDir).filter((f) => f !== 'index.md')
     if (remaining.length === 0) {
-      fs.rmdirSync(parentDir)
+      fs.rmSync(parentDir, { recursive: true, force: true })
       log.info(`[Storage] Removed empty date directory: ${parentDir}`)
+    } else {
+      updateDailyIndex(parentDir)
     }
   } catch {
-    // Parent dir may not exist or not be empty — fine either way
+    // Parent dir may not exist — fine
   }
 }
 
 // ---------------------------------------------------------------------------
 // Markdown rendering
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Helpers
 // ---------------------------------------------------------------------------
 
 function formatTimestamp(seconds: number): string {
@@ -213,12 +232,69 @@ function formatTimestamp(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+function formatDurationHuman(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  const rem = m % 60
+  return rem > 0 ? `${h}h ${rem}m` : `${h}h`
+}
+
+/** Turn a speaker name into a wikilink if it looks like a real name (not "Speaker A") */
+function wikilink(name: string): string {
+  if (/^Speaker [A-Z]$/i.test(name) || name === 'Me' || name === 'Others') return name
+  return `[[${name}]]`
+}
+
+/** Detect meeting platform from metadata */
+function detectPlatform(metadata: MeetingMetadata): string | undefined {
+  const event = metadata.calendarEvent
+  if (event?.platform) return event.platform.replace('_', '-')
+  if (event?.meetingLink?.includes('meet.google')) return 'google-meet'
+  if (event?.meetingLink?.includes('zoom.us')) return 'zoom'
+  if (event?.meetingLink?.includes('teams.microsoft')) return 'teams'
+  return undefined
+}
+
+/** Build YAML frontmatter block for a meeting */
+function buildFrontmatter(metadata: MeetingMetadata, extra?: Record<string, unknown>): string {
+  const date = new Date(metadata.startTime).toISOString().slice(0, 10)
+  const participants = metadata.speakers.map((s) => s.name)
+  const platform = detectPlatform(metadata)
+
+  const fields: Record<string, unknown> = {
+    type: 'meeting',
+    date,
+    title: metadata.title,
+    participants,
+    ...(platform ? { platform } : {}),
+    duration: formatDurationHuman(metadata.duration),
+    summarized: metadata.summarized,
+    ...extra
+  }
+
+  const yamlLines = Object.entries(fields).map(([key, value]) => {
+    if (Array.isArray(value)) {
+      return `${key}: [${value.map((v) => JSON.stringify(v)).join(', ')}]`
+    }
+    if (typeof value === 'string') return `${key}: "${value.replace(/"/g, '\\"')}"`
+    return `${key}: ${value}`
+  })
+
+  return `---\n${yamlLines.join('\n')}\n---\n`
+}
+
+// ---------------------------------------------------------------------------
+// Markdown rendering — with YAML frontmatter and wikilinks
+// ---------------------------------------------------------------------------
+
 function renderTranscriptMarkdown(
   metadata: MeetingMetadata,
   transcript: Transcript
 ): string {
   const lines: string[] = []
 
+  lines.push(buildFrontmatter(metadata))
   lines.push(`# ${metadata.title}`)
   lines.push('')
   lines.push(`**Date:** ${new Date(metadata.startTime).toLocaleDateString()}`)
@@ -228,7 +304,7 @@ function renderTranscriptMarkdown(
   lines.push(`**Duration:** ${formatTimestamp(metadata.duration)}`)
   if (metadata.speakers.length > 0) {
     lines.push(
-      `**Speakers:** ${metadata.speakers.map((s) => s.name).join(', ')}`
+      `**Speakers:** ${metadata.speakers.map((s) => wikilink(s.name)).join(', ')}`
     )
   }
   lines.push('')
@@ -236,7 +312,7 @@ function renderTranscriptMarkdown(
   lines.push('')
 
   for (const seg of transcript.segments) {
-    lines.push(`**${seg.speaker}** (${formatTimestamp(seg.start)})`)
+    lines.push(`**${wikilink(seg.speaker)}** (${formatTimestamp(seg.start)})`)
     lines.push(`${seg.text}`)
     lines.push('')
   }
@@ -250,6 +326,7 @@ function renderSummaryMarkdown(
 ): string {
   const lines: string[] = []
 
+  lines.push(buildFrontmatter(metadata, { type: 'meeting-summary' }))
   lines.push(`# Summary — ${metadata.title}`)
   lines.push('')
   lines.push('## Executive Summary')
@@ -260,7 +337,7 @@ function renderSummaryMarkdown(
     lines.push('## Topics')
     for (const topic of summary.topics) {
       lines.push(`### ${topic.topic}`)
-      lines.push(`*Participants: ${topic.participants.join(', ')}*`)
+      lines.push(`*Participants: ${topic.participants.map(wikilink).join(', ')}*`)
       lines.push('')
       lines.push(topic.summary)
       lines.push('')
@@ -282,4 +359,62 @@ function renderSummaryMarkdown(
   }
 
   return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Daily index — auto-generated index.md per date folder
+// ---------------------------------------------------------------------------
+
+/**
+ * Write or update the daily index.md in a date folder.
+ * Lists all meetings for that date with links and key metadata.
+ */
+export function updateDailyIndex(dateDir: string): void {
+  if (!fs.existsSync(dateDir)) return
+
+  const date = path.basename(dateDir) // YYYY-MM-DD
+  const entries: Array<{ slug: string; title: string; time: string; duration: string; speakers: string[] }> = []
+
+  for (const slug of fs.readdirSync(dateDir)) {
+    const metaPath = path.join(dateDir, slug, 'metadata.json')
+    if (!fs.existsSync(metaPath)) continue
+    try {
+      const meta: MeetingMetadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+      entries.push({
+        slug,
+        title: meta.title,
+        time: new Date(meta.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        duration: formatDurationHuman(meta.duration),
+        speakers: meta.speakers.map((s) => s.name)
+      })
+    } catch {
+      // Skip unreadable metadata
+    }
+  }
+
+  // Sort by time
+  entries.sort((a, b) => a.time.localeCompare(b.time))
+
+  const lines: string[] = []
+  lines.push(`---`)
+  lines.push(`type: daily-index`)
+  lines.push(`date: "${date}"`)
+  lines.push(`meetings: ${entries.length}`)
+  lines.push(`---`)
+  lines.push('')
+  lines.push(`# Meetings — ${date}`)
+  lines.push('')
+
+  if (entries.length === 0) {
+    lines.push('No meetings recorded.')
+  } else {
+    for (const e of entries) {
+      const speakerStr = e.speakers.map(wikilink).join(', ')
+      lines.push(`- **[${e.title}](${e.slug}/transcript.md)** — ${e.time} (${e.duration}) — ${speakerStr}`)
+    }
+  }
+  lines.push('')
+
+  atomicWrite(path.join(dateDir, 'index.md'), lines.join('\n'))
+  log.info(`[Storage] Updated daily index: ${dateDir}/index.md`)
 }

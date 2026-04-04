@@ -27,6 +27,7 @@ QuietClaw records audio from your meetings. Recording laws vary by jurisdiction 
 - **Local REST API** — query meetings, transcripts, summaries from any tool
 - **Crash recovery** — orphaned recordings from interrupted sessions are automatically recovered on next launch
 - **Platform join buttons** — upcoming meetings show clickable Google Meet / Zoom / Teams buttons with real brand icons
+- **Obsidian-compatible output** — YAML frontmatter, wikilinks for speaker names, and daily index files make meetings work seamlessly in Obsidian, Logseq, or any markdown knowledge graph
 
 ## How It Works
 
@@ -120,6 +121,7 @@ The local API runs on `http://localhost:19832` when QuietClaw is running.
 | `GET` | `/api/v1/meetings/:id/actions` | Action items |
 | `POST` | `/api/v1/meetings/:id/summarize` | Trigger summarization |
 | `POST` | `/api/v1/meetings/:id/actions/:aid` | Update action status |
+| `DELETE` | `/api/v1/meetings/:id` | Delete meeting and files |
 
 ### Example
 
@@ -140,16 +142,42 @@ Each meeting produces a directory under `~/.quietclaw/meetings/`:
 
 ```
 2026-04-04/
+  index.md                # Auto-generated daily index with links to all meetings
   weekly-standup-a1b2/
     metadata.json         # Meeting metadata, speakers, calendar event
     transcript.json       # Timestamped, speaker-attributed segments
-    transcript.md         # Human-readable transcript
+    transcript.md         # Human-readable transcript with YAML frontmatter
     summary.json          # Executive summary, topics, decisions (if summarized)
-    summary.md            # Human-readable summary
+    summary.md            # Human-readable summary with YAML frontmatter
     actions.json          # Action items with assignees and priority
 ```
 
 Files are plain JSON and Markdown — readable by any tool, diffable in git, and queryable with `jq`.
+
+### Obsidian & Knowledge Graph Compatible
+
+All markdown files include **YAML frontmatter** with structured metadata:
+
+```yaml
+---
+type: meeting
+date: "2026-04-04"
+title: "Weekly Standup"
+participants: ["Alex", "Jordan", "Sam"]
+platform: "google-meet"
+duration: "32m"
+summarized: true
+---
+```
+
+Speaker names in transcripts and summaries are rendered as **wikilinks** — `[[Jordan]]` instead of plain text. If you point an Obsidian vault (or any markdown-based knowledge tool) at `~/.quietclaw/meetings/`, your meetings become part of your knowledge graph automatically:
+
+- **Dataview queries** like "list all meetings with Jordan in the last week" work out of the box
+- **Backlinks** from a person's note show every meeting they participated in
+- **Daily indexes** (`index.md` per date folder) give agents and humans a quick overview without scanning every directory
+- **Graph view** visualizes relationships between meetings, people, and topics
+
+QuietClaw is the capture layer. Your knowledge tool — Obsidian, Logseq, or even a plain `grep` — is the consumption layer. The files are the interface.
 
 ## Agent Integration
 
