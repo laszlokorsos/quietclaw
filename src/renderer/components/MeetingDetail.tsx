@@ -59,6 +59,8 @@ export default function MeetingDetail({
   const [loading, setLoading] = useState(true)
   const [summarizing, setSummarizing] = useState(false)
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -98,6 +100,19 @@ export default function MeetingDetail({
     setSummarizing(false)
   }
 
+  async function handleDelete() {
+    if (!api || deleting) return
+    setDeleting(true)
+    try {
+      await api.meetings.delete(meetingId)
+      onBack()
+    } catch (err) {
+      console.error('Delete failed:', err)
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
+
   function formatTimestamp(seconds: number) {
     const m = Math.floor(seconds / 60)
     const s = Math.floor(seconds % 60)
@@ -119,7 +134,19 @@ export default function MeetingDetail({
         &larr; Back to meetings
       </button>
 
-      <h2 className="text-xl font-semibold tracking-tight mb-1">{meta.title}</h2>
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <h2 className="text-xl font-semibold tracking-tight">{meta.title}</h2>
+        <button
+          onClick={() => setShowDeleteConfirm(true)}
+          className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-recording-text hover:bg-recording-text/10 transition-colors"
+          title="Delete meeting"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3,6 5,6 21,6" />
+            <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6M8,6V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2V6" />
+          </svg>
+        </button>
+      </div>
       <p className="text-xs text-text-secondary mb-5">
         {new Date(meta.startTime).toLocaleDateString()} &middot;{' '}
         {new Date(meta.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -128,6 +155,34 @@ export default function MeetingDetail({
         &middot; {Math.round(meta.duration / 60)}m
         &middot; {meta.speakers.map((s) => s.name).join(', ')}
       </p>
+
+      {/* Delete confirmation dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-surface-elevated rounded-2xl p-6 max-w-sm mx-4 shadow-xl border border-border">
+            <h3 className="text-base font-semibold text-text-primary mb-2">Delete this meeting?</h3>
+            <p className="text-sm text-text-secondary mb-5 leading-relaxed">
+              This will permanently delete the recording, transcript, and any summary. This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-medium text-white bg-recording rounded-xl hover:bg-recording/90 disabled:opacity-40 transition-colors"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b border-border">

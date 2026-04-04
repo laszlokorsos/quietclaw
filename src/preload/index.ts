@@ -56,6 +56,7 @@ export interface QuietClawAPI {
     summary: (id: string) => Promise<unknown>
     actions: (id: string) => Promise<unknown>
     summarize: (id: string) => Promise<{ summary: unknown; actions: unknown[] }>
+    delete: (id: string) => Promise<boolean>
   }
   recovery: {
     getStatus: () => Promise<unknown>
@@ -110,7 +111,8 @@ const api: QuietClawAPI = {
     transcript: (id: string) => ipcRenderer.invoke('meetings:transcript', id),
     summary: (id: string) => ipcRenderer.invoke('meetings:summary', id),
     actions: (id: string) => ipcRenderer.invoke('meetings:actions', id),
-    summarize: (id: string) => ipcRenderer.invoke('meetings:summarize', id)
+    summarize: (id: string) => ipcRenderer.invoke('meetings:summarize', id),
+    delete: (id: string) => ipcRenderer.invoke('meetings:delete', id)
   },
   recovery: {
     getStatus: () => ipcRenderer.invoke('recovery:getStatus'),

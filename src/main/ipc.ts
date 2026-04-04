@@ -17,9 +17,10 @@ import {
   getMeeting,
   getTodayMeetings,
   searchMeetings,
-  getMeetingDir
+  getMeetingDir,
+  deleteMeetingIndex
 } from './storage/db'
-import { readMeetingMetadata, readTranscript, readSummary, readActions, writeSummaryFiles } from './storage/files'
+import { readMeetingMetadata, readTranscript, readSummary, readActions, writeSummaryFiles, deleteMeetingFiles } from './storage/files'
 import { markSummarized } from './storage/db'
 import { AnthropicSummarizer } from './pipeline/summarizer/anthropic'
 import { recoverAll } from './pipeline/recovery'
@@ -228,6 +229,17 @@ export function setupIpcHandlers(
 
     log.info(`[IPC] Summarized meeting ${id}`)
     return { summary: result.summary, actions: result.actions }
+  })
+
+  // Delete meeting (files + DB index)
+  ipcMain.handle('meetings:delete', (_event, id: string) => {
+    const dir = getMeetingDir(id)
+    if (dir) {
+      deleteMeetingFiles(dir)
+    }
+    deleteMeetingIndex(id)
+    log.info(`[IPC] Deleted meeting ${id}`)
+    return true
   })
 
   // Recovery

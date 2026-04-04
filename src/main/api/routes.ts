@@ -12,6 +12,7 @@
  *   GET  /meetings/:id/actions          — Meeting action items
  *   POST /meetings/:id/summarize        — Trigger summarization
  *   POST /meetings/:id/actions/:aid     — Update action item status
+ *   DELETE /meetings/:id                — Delete a meeting and its files
  *   GET  /config                        — Current config (safe fields only)
  */
 
@@ -24,14 +25,16 @@ import {
   getTodayMeetings,
   searchMeetings,
   countMeetings,
-  getMeetingDir
+  getMeetingDir,
+  deleteMeetingIndex
 } from '../storage/db'
 import {
   readMeetingMetadata,
   readTranscript,
   readSummary,
   readActions,
-  writeSummaryFiles
+  writeSummaryFiles,
+  deleteMeetingFiles
 } from '../storage/files'
 import { markSummarized } from '../storage/db'
 import { AnthropicSummarizer } from '../pipeline/summarizer/anthropic'
@@ -265,6 +268,24 @@ export function createRoutes(): Router {
     } catch (err) {
       log.error('[API] POST /meetings/:id/actions/:aid error:', err)
       res.status(500).json({ error: 'Failed to update action' })
+    }
+  })
+
+  // Delete a meeting
+  router.delete('/meetings/:id', (req, res) => {
+    try {
+      const dir = getMeetingDir(req.params.id)
+      if (!dir) {
+        res.status(404).json({ error: 'Meeting not found' })
+        return
+      }
+      deleteMeetingFiles(dir)
+      deleteMeetingIndex(req.params.id)
+      log.info(`[API] Deleted meeting ${req.params.id}`)
+      res.json({ deleted: true })
+    } catch (err) {
+      log.error('[API] DELETE /meetings/:id error:', err)
+      res.status(500).json({ error: 'Failed to delete meeting' })
     }
   })
 

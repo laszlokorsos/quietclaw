@@ -182,6 +182,27 @@ export function readActions(meetingDir: string): ActionItem[] | null {
   }
 }
 
+/**
+ * Delete a meeting's directory and all its files from disk.
+ */
+export function deleteMeetingFiles(meetingDir: string): void {
+  if (!fs.existsSync(meetingDir)) return
+  fs.rmSync(meetingDir, { recursive: true, force: true })
+  log.info(`[Storage] Deleted meeting directory: ${meetingDir}`)
+
+  // Remove parent date directory if now empty
+  const parentDir = path.dirname(meetingDir)
+  try {
+    const remaining = fs.readdirSync(parentDir)
+    if (remaining.length === 0) {
+      fs.rmdirSync(parentDir)
+      log.info(`[Storage] Removed empty date directory: ${parentDir}`)
+    }
+  } catch {
+    // Parent dir may not exist or not be empty — fine either way
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Markdown rendering
 // ---------------------------------------------------------------------------
