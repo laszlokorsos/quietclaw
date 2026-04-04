@@ -1,7 +1,7 @@
 /**
  * Automatic recording via meeting app detection.
  *
- * The native layer polls every 5 seconds for meeting windows (Google Meet,
+ * The native layer polls every 2 seconds for meeting windows (Google Meet,
  * Zoom, Teams) via SCShareableContent + NSRunningApplication. It also
  * listens for mic state changes via Core Audio property listeners for
  * faster detection.
@@ -91,7 +91,10 @@ function handleMeetingEvent(event: MeetingDetectionEvent): void {
   } else if (event.event === 'meeting:ended') {
     // Only act if we started this recording
     if (!activeMeetingBundleId) return
-    if (activeOrchestrator.getState() !== 'recording') {
+
+    const state = activeOrchestrator.getState()
+    if (state !== 'recording') {
+      log.info(`[AutoRecord] Meeting ended but orchestrator is "${state}" — clearing state`)
       activeMeetingBundleId = null
       return
     }
@@ -119,8 +122,12 @@ async function autoStart(event: MeetingDetectionEvent): Promise<void> {
 
   const notification = new Notification({
     title: 'QuietClaw — Recording Started',
-    body: `Auto-recording: ${eventTitle}`,
+    body: `Auto-recording: ${eventTitle}\nClick to stop recording.`,
     silent: true
+  })
+  notification.on('click', () => {
+    log.info('[AutoRecord] User clicked notification — stopping recording')
+    autoStop()
   })
   notification.show()
 

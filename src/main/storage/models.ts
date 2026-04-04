@@ -50,6 +50,12 @@ export interface Transcript {
   language: string
 }
 
+/** A meeting link with its platform */
+export interface MeetingLink {
+  url: string
+  platform: 'google_meet' | 'zoom' | 'teams' | 'other'
+}
+
 /** Calendar event info attached to a meeting */
 export interface CalendarEventInfo {
   eventId: string
@@ -60,6 +66,8 @@ export interface CalendarEventInfo {
   attendees: CalendarAttendee[]
   meetingLink?: string
   platform?: 'google_meet' | 'zoom' | 'teams' | 'other'
+  /** All detected meeting links (may include both Google Meet and Zoom) */
+  meetingLinks?: MeetingLink[]
 }
 
 export interface CalendarAttendee {

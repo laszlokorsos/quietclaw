@@ -78,6 +78,8 @@ export interface AppConfig {
     audio_format: 'opus' | 'flac' | 'wav'
     audio_retention_days: number
     markdown_output: boolean
+    onboarding_complete: boolean
+    theme: 'system' | 'light' | 'dark'
   }
   consent: ConsentConfig
   calendar: {
@@ -105,7 +107,9 @@ function getDefaults(): AppConfig {
       retain_audio: false,
       audio_format: 'opus',
       audio_retention_days: 30,
-      markdown_output: true
+      markdown_output: true,
+      onboarding_complete: false,
+      theme: 'dark' as const
     },
     consent: {
       auto_message_enabled: false,
@@ -244,6 +248,43 @@ export function getConfigDir(): string {
 /** Get the config file path */
 export function getConfigPath(): string {
   return CONFIG_PATH
+}
+
+/**
+ * Update a config field and write back to disk.
+ * Uses line-by-line replacement to preserve TOML formatting and comments.
+ */
+export function updateConfigField(key: string, value: unknown): void {
+  ensureConfigDir()
+
+  let content = ''
+  if (fs.existsSync(CONFIG_PATH)) {
+    content = fs.readFileSync(CONFIG_PATH, 'utf-8')
+  }
+
+  const stringValue =
+    typeof value === 'string' ? `"${value}"` :
+    typeof value === 'boolean' ? String(value) :
+    String(value)
+
+  // Try to replace existing key
+  const regex = new RegExp(`^(\\s*${key}\\s*=\\s*).*$`, 'm')
+  if (regex.test(content)) {
+    content = content.replace(regex, `$1${stringValue}`)
+  } else {
+    // Key doesn't exist — append under [general] section (or at end)
+    const sectionMatch = content.match(/^\[general\]/m)
+    if (sectionMatch && sectionMatch.index !== undefined) {
+      const insertPos = content.indexOf('\n', sectionMatch.index) + 1
+      content = content.slice(0, insertPos) + `${key} = ${stringValue}\n` + content.slice(insertPos)
+    } else {
+      content += `\n${key} = ${stringValue}\n`
+    }
+  }
+
+  fs.writeFileSync(CONFIG_PATH, content, 'utf-8')
+  cachedConfig = null // Invalidate cache
+  log.info(`[Config] Updated ${key} = ${stringValue}`)
 }
 
 /** Ensure the config directory and a default config file exist */

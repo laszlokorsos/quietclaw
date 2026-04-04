@@ -5,11 +5,12 @@
  * to call these handlers.
  */
 
-import { ipcMain } from 'electron'
+import { ipcMain, dialog, shell, nativeTheme } from 'electron'
 import log from 'electron-log/main'
-import { loadConfig } from './config/settings'
+import { loadConfig, updateConfigField, reloadConfig } from './config/settings'
 import { getDeepgramApiKey, getAnthropicApiKey, setDeepgramApiKey, setAnthropicApiKey } from './config/secrets'
 import { listAccounts, addGoogleAccount, removeAccount } from './calendar/accounts'
+import { abortGoogleAuth } from './calendar/google'
 import { getCachedEvents, syncNow } from './calendar/sync'
 import {
   listMeetings,
@@ -18,9 +19,23 @@ import {
   searchMeetings,
   getMeetingDir
 } from './storage/db'
-import { readMeetingMetadata, readTranscript, readSummary, readActions } from './storage/files'
+import { readMeetingMetadata, readTranscript, readSummary, readActions, writeSummaryFiles } from './storage/files'
+import { markSummarized } from './storage/db'
+import { AnthropicSummarizer } from './pipeline/summarizer/anthropic'
+import { recoverAll } from './pipeline/recovery'
 import type { AudioCaptureProvider } from './audio/types'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
+
+/** Mutable recovery state — shared between IPC handlers and checkCrashRecovery */
+export const recoveryState: {
+  orphanedFiles: string[]
+  processing: boolean
+  results: Array<{ file: string; status: string; meetingId?: string; title?: string; error?: string }>
+} = {
+  orphanedFiles: [],
+  processing: false,
+  results: []
+}
 
 export function setupIpcHandlers(
   audioCapture: AudioCaptureProvider | null,
@@ -29,6 +44,32 @@ export function setupIpcHandlers(
   // Config
   ipcMain.handle('config:get', () => {
     return loadConfig()
+  })
+
+  ipcMain.handle('config:setField', (_event, key: string, value: unknown) => {
+    updateConfigField(key, value)
+    return true
+  })
+
+  // Theme
+  function resolveTheme(preference: string): 'light' | 'dark' {
+    if (preference === 'system') {
+      return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+    }
+    return preference as 'light' | 'dark'
+  }
+
+  ipcMain.handle('theme:get', () => {
+    const config = loadConfig()
+    const preference = config.general.theme ?? 'dark'
+    return { preference, resolved: resolveTheme(preference) }
+  })
+
+  ipcMain.handle('theme:set', (_event, preference: 'system' | 'light' | 'dark') => {
+    updateConfigField('theme', preference)
+    reloadConfig()
+    const resolved = resolveTheme(preference)
+    return { preference, resolved }
   })
 
   // Audio capture status
@@ -48,6 +89,13 @@ export function setupIpcHandlers(
     return audioCapture?.isCapturing() ?? false
   })
 
+  ipcMain.handle('audio:openPermissionSettings', () => {
+    shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+    )
+    return true
+  })
+
   // Pipeline / session
   ipcMain.handle('pipeline:getState', () => {
     return orchestrator?.getState() ?? 'idle'
@@ -55,6 +103,10 @@ export function setupIpcHandlers(
 
   ipcMain.handle('pipeline:getSessionId', () => {
     return orchestrator?.getSessionId() ?? null
+  })
+
+  ipcMain.handle('pipeline:getSessionInfo', () => {
+    return orchestrator?.getSessionInfo() ?? null
   })
 
   // Secrets (check existence only — never send secret values to renderer)
@@ -92,6 +144,11 @@ export function setupIpcHandlers(
     return true
   })
 
+  ipcMain.handle('calendar:abortAuth', () => {
+    abortGoogleAuth()
+    return true
+  })
+
   ipcMain.handle('calendar:events', () => {
     return getCachedEvents()
   })
@@ -102,11 +159,19 @@ export function setupIpcHandlers(
   })
 
   // Meetings
-  // Parse speakers JSON from DB rows before sending to renderer
+  // Transform DB rows (snake_case, raw types) to renderer format (camelCase, proper types)
   const formatRows = (rows: Array<Record<string, unknown>>) =>
     rows.map((r) => ({
-      ...r,
-      speakers: typeof r.speakers === 'string' ? JSON.parse(r.speakers as string) : r.speakers
+      id: r.id,
+      title: r.title,
+      slug: r.slug,
+      startTime: r.start_time,
+      endTime: r.end_time,
+      duration: r.duration,
+      date: r.date,
+      speakers: typeof r.speakers === 'string' ? JSON.parse(r.speakers as string) : r.speakers,
+      summarized: r.summarized === 1,
+      sttProvider: r.stt_provider
     }))
 
   ipcMain.handle('meetings:list', (_event, limit?: number, offset?: number) => {
@@ -143,6 +208,59 @@ export function setupIpcHandlers(
     const dir = getMeetingDir(id)
     if (!dir) return null
     return readActions(dir)
+  })
+
+  // On-demand summarization
+  ipcMain.handle('meetings:summarize', async (_event, id: string) => {
+    const dir = getMeetingDir(id)
+    if (!dir) throw new Error(`Meeting ${id} not found`)
+
+    const metadata = readMeetingMetadata(dir)
+    const transcript = readTranscript(dir)
+    if (!metadata || !transcript) throw new Error('Meeting data not found')
+
+    const summarizer = new AnthropicSummarizer()
+    const speakers = (metadata.speakers || []).map((s: { name: string }) => s.name)
+    const result = await summarizer.summarize(transcript.segments, metadata.title, speakers)
+
+    writeSummaryFiles(metadata, result.summary, result.actions)
+    markSummarized(id)
+
+    log.info(`[IPC] Summarized meeting ${id}`)
+    return { summary: result.summary, actions: result.actions }
+  })
+
+  // Recovery
+  ipcMain.handle('recovery:getStatus', () => {
+    return recoveryState
+  })
+
+  ipcMain.handle('recovery:process', async () => {
+    // Trigger recovery processing (e.g., after user adds Deepgram key)
+    const { MacOSAudioCapture } = await import('./audio/capture-macos')
+    const orphaned = await MacOSAudioCapture.getOrphanedRecordings()
+    if (orphaned.length === 0) return { orphanedFiles: [], processing: false, results: [] }
+
+    recoveryState.processing = true
+    recoveryState.orphanedFiles = orphaned
+    recoveryState.results = []
+
+    await recoverAll(orphaned, (result) => {
+      recoveryState.results.push(result)
+    })
+
+    recoveryState.processing = false
+    return recoveryState
+  })
+
+  // Folder picker dialog
+  ipcMain.handle('dialog:selectFolder', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: 'Select Recording Location'
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
   })
 
   log.info('[IPC] Handlers registered')

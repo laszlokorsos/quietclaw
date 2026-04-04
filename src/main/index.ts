@@ -10,20 +10,22 @@
  *   - Main window (hidden by default — tray-first app)
  */
 
-import { app, BrowserWindow, shell, dialog } from 'electron'
+import { app, BrowserWindow, Notification, shell, dialog, nativeTheme } from 'electron'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import log from 'electron-log/main'
 import { initLogger } from './logger'
 import { ensureConfigDir, loadConfig } from './config/settings'
+import { getDeepgramApiKey } from './config/secrets'
 import { createAudioCaptureProvider } from './audio/capture'
-import { setupIpcHandlers } from './ipc'
+import { setupIpcHandlers, recoveryState } from './ipc'
 import { setupTray } from './tray'
 import { PipelineOrchestrator } from './pipeline/orchestrator'
-import { initDatabase, closeDatabase } from './storage/db'
+import { initDatabase, closeDatabase, syncFilesystemToDb } from './storage/db'
 import { startApiServer, stopApiServer } from './api/server'
 import { startCalendarSync, stopCalendarSync } from './calendar/sync'
 import { startAutoRecord, stopAutoRecord } from './audio/auto-record'
+import { recoverAll } from './pipeline/recovery'
 import type { AudioCaptureProvider } from './audio/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -88,6 +90,9 @@ app.whenReady().then(async () => {
   // Initialize SQLite database
   try {
     initDatabase()
+
+    // Discover meetings on disk not yet in DB (e.g., from prior ABI mismatch)
+    syncFilesystemToDb(config.general.data_dir)
   } catch (err) {
     log.error('[App] Failed to initialize database:', err)
   }
@@ -98,6 +103,17 @@ app.whenReady().then(async () => {
   } catch (err) {
     log.error('[App] Failed to start API server:', err)
   }
+
+  // Listen for OS theme changes — push to renderer when user preference is 'system'
+  nativeTheme.on('updated', () => {
+    const theme = config.general.theme ?? 'dark'
+    if (theme === 'system') {
+      const resolved = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('theme-changed', resolved)
+      }
+    }
+  })
 
   // Start periodic calendar sync
   startCalendarSync()
@@ -160,13 +176,36 @@ app.whenReady().then(async () => {
     log.error('[App] Failed to initialize audio capture:', err)
   }
 
-  // Create the main window (hidden)
+  // Create the main window
   mainWindow = createWindow()
+
+  // Show window on first launch for onboarding
+  if (!config.general.onboarding_complete) {
+    mainWindow.once('ready-to-show', () => {
+      mainWindow?.show()
+      if (process.platform === 'darwin') {
+        app.dock.show()
+      }
+    })
+  }
 
   // Initialize pipeline orchestrator
   if (audioCapture) {
     orchestrator = new PipelineOrchestrator(audioCapture)
   }
+
+  // When the window becomes visible, push current recording state to renderer.
+  // This handles the case where auto-record started before the window was opened.
+  mainWindow.on('show', () => {
+    if (!orchestrator) return
+    const state = orchestrator.getState()
+    if (state === 'recording') {
+      const sessionInfo = orchestrator.getSessionInfo()
+      mainWindow?.webContents.send('recording-status', { recording: true, sessionInfo })
+    } else {
+      mainWindow?.webContents.send('recording-status', { recording: false })
+    }
+  })
 
   // Set up system tray (pass orchestrator for recording control)
   if (orchestrator) {
@@ -224,13 +263,48 @@ async function checkCrashRecovery(): Promise<void> {
   try {
     const { MacOSAudioCapture } = await import('./audio/capture-macos')
     const orphaned = await MacOSAudioCapture.getOrphanedRecordings()
-    if (orphaned.length > 0) {
-      log.warn(`[App] Found ${orphaned.length} orphaned recording(s) from a previous crash`)
-      // In Milestone 5, this will trigger the CrashRecovery UI component.
-      // For now, just log it.
-      mainWindow?.webContents.send('crash-recovery', orphaned)
+    if (orphaned.length === 0) return
+
+    log.warn(`[App] Found ${orphaned.length} orphaned recording(s) from a previous crash`)
+
+    recoveryState.orphanedFiles = orphaned
+
+    // Notify renderer about orphaned files
+    mainWindow?.webContents.send('recovery-progress', {
+      orphanedFiles: orphaned,
+      processing: false,
+      results: []
+    })
+
+    // If Deepgram key is set, auto-process in background
+    if (!getDeepgramApiKey()) {
+      log.info('[App] No Deepgram API key — holding orphaned files for later recovery')
+      return
     }
-  } catch {
-    // Audio capture not available — skip crash recovery check
+
+    log.info('[App] Starting background recovery of orphaned recordings...')
+    recoveryState.processing = true
+    mainWindow?.webContents.send('recovery-progress', { ...recoveryState })
+
+    await recoverAll(orphaned, (result) => {
+      recoveryState.results.push(result)
+      mainWindow?.webContents.send('recovery-progress', { ...recoveryState })
+
+      // Desktop notification for successful recovery
+      if (result.status === 'completed' && result.title) {
+        const n = new Notification({
+          title: 'QuietClaw — Recording Recovered',
+          body: result.title,
+          silent: true
+        })
+        n.show()
+      }
+    })
+
+    recoveryState.processing = false
+    mainWindow?.webContents.send('recovery-progress', { ...recoveryState })
+    log.info('[App] Crash recovery complete')
+  } catch (err) {
+    log.error('[App] Crash recovery check failed:', err)
   }
 }

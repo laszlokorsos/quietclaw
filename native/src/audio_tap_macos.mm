@@ -637,7 +637,7 @@ void AudioTapMacOS::StartMeetingDetection(MeetingCallback callback) {
     LogToJS(logBuf);
     NSLog(@"[QuietClaw] %s", logBuf);
 
-    // Start a fallback poll timer (every 5 seconds).
+    // Start a fallback poll timer (every 2 seconds).
     // The property listener only fires on mic state TRANSITIONS — if another app
     // (e.g. Wispr Flow) already has the mic open, joining a meeting won't trigger
     // a state change. The poll catches this case.
@@ -645,15 +645,15 @@ void AudioTapMacOS::StartMeetingDetection(MeetingCallback callback) {
         DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
         dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0));
     dispatch_source_set_timer(timer,
-        dispatch_time(DISPATCH_TIME_NOW, 0),  // Fire immediately for initial check
-        5 * NSEC_PER_SEC,                      // Then every 5 seconds
-        1 * NSEC_PER_SEC);                     // 1 second leeway for power efficiency
+        dispatch_time(DISPATCH_TIME_NOW, 0),              // Fire immediately for initial check
+        2 * NSEC_PER_SEC,                                  // Then every 2 seconds
+        (uint64_t)(0.5 * NSEC_PER_SEC));                   // 0.5s leeway
     __block BOOL firstPoll = YES;
     dispatch_source_set_event_handler(timer, ^{
         if (!weakSelf->meetingDetectionActive_) return;
         if (firstPoll) {
             firstPoll = NO;
-            weakSelf->LogToJS("Poll timer started — checking every 5s");
+            weakSelf->LogToJS("Poll timer started — checking every 2s");
         }
         weakSelf->CheckForActiveMeeting();
     });
@@ -755,7 +755,7 @@ void AudioTapMacOS::CheckForActiveMeeting() {
                 dispatch_semaphore_signal(sem);
             }];
 
-        dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC));
+        dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)));
 
         if (detectedBundleId && detectedTitle) {
             if (!meetingCurrentlyDetected_) {

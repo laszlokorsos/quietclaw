@@ -8,6 +8,7 @@
  * Cached events are stored in memory for fast lookup during recordings.
  */
 
+import { BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig } from '../config/settings'
 import { getActiveAccountEmails } from './accounts'
@@ -65,9 +66,15 @@ export async function syncNow(): Promise<void> {
   const now = new Date()
   const lookahead = config.calendar.settings.lookahead_minutes
 
-  // Fetch from 30 minutes ago to lookahead minutes ahead
-  const timeMin = new Date(now.getTime() - 30 * 60 * 1000)
-  const timeMax = new Date(now.getTime() + lookahead * 60 * 1000)
+  // Fetch from start of today to end of today (for UI display)
+  // plus the auto-detect lookahead window
+  const startOfDay = new Date(now)
+  startOfDay.setHours(0, 0, 0, 0)
+  const endOfDay = new Date(now)
+  endOfDay.setHours(23, 59, 59, 999)
+
+  const timeMin = new Date(Math.min(startOfDay.getTime(), now.getTime() - 30 * 60 * 1000))
+  const timeMax = new Date(Math.max(endOfDay.getTime(), now.getTime() + lookahead * 60 * 1000))
 
   const allEvents: CalendarEventInfo[] = []
 
@@ -83,6 +90,11 @@ export async function syncNow(): Promise<void> {
   log.info(
     `[Calendar] Synced ${cachedEvents.length} events from ${accounts.length} account(s)`
   )
+
+  // Notify all renderer windows that calendar data is fresh
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('calendar-synced')
+  }
 }
 
 /**

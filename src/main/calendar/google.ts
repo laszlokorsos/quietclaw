@@ -21,7 +21,7 @@ import {
   getCalendarRefreshToken,
   setCalendarRefreshToken
 } from '../config/secrets'
-import type { CalendarEventInfo, CalendarAttendee } from '../storage/models'
+import type { CalendarEventInfo, CalendarAttendee, MeetingLink } from '../storage/models'
 
 // ---------------------------------------------------------------------------
 // OAuth credentials
@@ -40,6 +40,10 @@ const SCOPES = [
 ]
 const CALLBACK_PORT = 19833 // Ephemeral port for OAuth callback
 const REDIRECT_URI = `http://127.0.0.1:${CALLBACK_PORT}/callback`
+
+/** Active OAuth server + reject handle — allows aborting a pending flow */
+let activeOAuthServer: Server | null = null
+let activeOAuthReject: ((err: Error) => void) | null = null
 
 /**
  * Create an OAuth2 client configured for loopback redirect.
@@ -95,35 +99,69 @@ export async function authorizeGoogleCalendar(): Promise<string> {
 }
 
 /**
+ * Abort any in-progress Google OAuth flow.
+ * Closes the callback server and rejects the pending promise.
+ */
+export function abortGoogleAuth(): void {
+  if (activeOAuthServer) {
+    activeOAuthServer.close()
+    activeOAuthServer = null
+  }
+  if (activeOAuthReject) {
+    activeOAuthReject(new Error('OAuth flow cancelled'))
+    activeOAuthReject = null
+  }
+}
+
+/**
  * Open the auth URL in the browser and wait for the callback.
  * Returns the authorization code.
  */
 function captureAuthCode(authUrl: string): Promise<string> {
+  // Clean up any lingering server from a previous cancelled attempt
+  if (activeOAuthServer) {
+    activeOAuthServer.close()
+    activeOAuthServer = null
+  }
+  if (activeOAuthReject) {
+    activeOAuthReject(new Error('OAuth flow superseded by new attempt'))
+    activeOAuthReject = null
+  }
+
   return new Promise((resolve, reject) => {
-    const app = express()
+    const expressApp = express()
     let server: Server
 
+    activeOAuthReject = reject
+
+    function cleanup() {
+      clearTimeout(timeout)
+      if (activeOAuthServer === server) {
+        activeOAuthServer = null
+        activeOAuthReject = null
+      }
+      server.close()
+    }
+
     const timeout = setTimeout(() => {
-      server?.close()
+      cleanup()
       reject(new Error('OAuth authorization timed out (120s)'))
     }, 120000)
 
-    app.get('/callback', (req, res) => {
-      clearTimeout(timeout)
-
+    expressApp.get('/callback', (req, res) => {
       const code = req.query.code as string
       const error = req.query.error as string
 
       if (error) {
         res.send('<html><body><h2>Authorization denied</h2><p>You can close this window.</p></body></html>')
-        server.close()
+        cleanup()
         reject(new Error(`OAuth error: ${error}`))
         return
       }
 
       if (!code) {
         res.send('<html><body><h2>Error</h2><p>No authorization code received.</p></body></html>')
-        server.close()
+        cleanup()
         reject(new Error('No authorization code in callback'))
         return
       }
@@ -135,17 +173,18 @@ function captureAuthCode(authUrl: string): Promise<string> {
           '</body></html>'
       )
 
-      server.close()
+      cleanup()
       resolve(code)
     })
 
-    server = app.listen(CALLBACK_PORT, '127.0.0.1', () => {
+    server = expressApp.listen(CALLBACK_PORT, '127.0.0.1', () => {
       log.info(`[Calendar] OAuth callback server listening on port ${CALLBACK_PORT}`)
       shell.openExternal(authUrl)
     })
+    activeOAuthServer = server
 
     server.on('error', (err: NodeJS.ErrnoException) => {
-      clearTimeout(timeout)
+      cleanup()
       if (err.code === 'EADDRINUSE') {
         reject(new Error(`Port ${CALLBACK_PORT} in use — close other OAuth flows first`))
       } else {
@@ -218,28 +257,43 @@ function convertEvent(
     responseStatus: (a.responseStatus as CalendarAttendee['responseStatus']) ?? 'needsAction'
   }))
 
-  // Detect meeting platform from conference data or description
-  let meetingLink: string | undefined
-  let platform: CalendarEventInfo['platform']
+  // Detect meeting platforms from conference data and description
+  const meetingLinks: MeetingLink[] = []
+  const seenUrls = new Set<string>()
 
+  function detectPlatform(url: string): MeetingLink['platform'] {
+    if (url.includes('meet.google.com')) return 'google_meet'
+    if (url.includes('zoom.us')) return 'zoom'
+    if (url.includes('teams.microsoft.com')) return 'teams'
+    return 'other'
+  }
+
+  function addLink(url: string): void {
+    if (seenUrls.has(url)) return
+    seenUrls.add(url)
+    meetingLinks.push({ url, platform: detectPlatform(url) })
+  }
+
+  // Collect all video entry points from conference data
   const confData = event.conferenceData
   if (confData?.entryPoints) {
     for (const ep of confData.entryPoints) {
       if (ep.entryPointType === 'video' && ep.uri) {
-        meetingLink = ep.uri
-        if (ep.uri.includes('meet.google.com')) {
-          platform = 'google_meet'
-        } else if (ep.uri.includes('zoom.us')) {
-          platform = 'zoom'
-        } else if (ep.uri.includes('teams.microsoft.com')) {
-          platform = 'teams'
-        } else {
-          platform = 'other'
-        }
-        break
+        addLink(ep.uri)
       }
     }
   }
+
+  // Scan description and location for additional meeting links (e.g., Zoom in description + Meet in conferenceData)
+  const textToScan = [event.description ?? '', event.location ?? ''].join(' ')
+  const linkPattern = /https?:\/\/(?:meet\.google\.com\/[a-z\-]+|[\w.]*zoom\.us\/j\/\d+[^\s<"')]*|teams\.microsoft\.com\/l\/meetup-join\/[^\s<"')]+)/gi
+  for (const match of textToScan.matchAll(linkPattern)) {
+    addLink(match[0])
+  }
+
+  // Primary link and platform (first detected, for backwards compatibility)
+  const meetingLink = meetingLinks[0]?.url
+  const platform = meetingLinks[0]?.platform
 
   return {
     eventId: event.id,
@@ -249,7 +303,8 @@ function convertEvent(
     endTime: event.end.dateTime,
     attendees,
     meetingLink,
-    platform
+    platform,
+    meetingLinks: meetingLinks.length > 0 ? meetingLinks : undefined
   }
 }
 

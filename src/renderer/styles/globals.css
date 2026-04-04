@@ -1,1 +1,149 @@
 @import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Inter — Variable font, bundled locally
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../assets/fonts/InterVariable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../assets/fonts/InterVariable-Italic.woff2') format('woff2');
+}
+
+/* ---------------------------------------------------------------------------
+   Class-based dark mode variant
+   --------------------------------------------------------------------------- */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Design tokens — Tailwind @theme generates utility classes from these
+   --------------------------------------------------------------------------- */
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --color-surface: var(--qc-surface);
+  --color-surface-secondary: var(--qc-surface-secondary);
+  --color-surface-elevated: var(--qc-surface-elevated);
+  --color-border: var(--qc-border);
+  --color-text-primary: var(--qc-text-primary);
+  --color-text-secondary: var(--qc-text-secondary);
+  --color-text-muted: var(--qc-text-muted);
+  --color-accent: var(--qc-accent);
+  --color-accent-hover: var(--qc-accent-hover);
+  --color-accent-soft: var(--qc-accent-soft);
+  --color-success: var(--qc-success);
+  --color-recording: var(--qc-recording);
+  --color-recording-text: var(--qc-recording-text);
+  --color-speaker-remote: var(--qc-speaker-remote);
+  --color-priority-high-bg: var(--qc-priority-high-bg);
+  --color-priority-high-text: var(--qc-priority-high-text);
+  --color-priority-medium-bg: var(--qc-priority-medium-bg);
+  --color-priority-medium-text: var(--qc-priority-medium-text);
+  --color-now-bg: var(--qc-now-bg);
+  --color-now-border: var(--qc-now-border);
+  --color-now-text: var(--qc-now-text);
+}
+
+/* ---------------------------------------------------------------------------
+   Light mode (base) — warm cream tones
+   --------------------------------------------------------------------------- */
+
+:root {
+  --qc-surface: #FDFBF7;
+  --qc-surface-secondary: #F5F1EB;
+  --qc-surface-elevated: #FFFFFF;
+  --qc-border: #E5DFD5;
+  --qc-text-primary: #1C1917;
+  --qc-text-secondary: #4A4541;
+  --qc-text-muted: #7D7873;
+  --qc-accent: #C4553C;
+  --qc-accent-hover: #A8432E;
+  --qc-accent-soft: #D4644A18;
+  --qc-success: #15803D;
+  --qc-recording: #ef4444;
+  --qc-recording-text: #dc2626;
+  --qc-speaker-remote: #10b981;
+  --qc-priority-high-bg: rgba(127, 29, 29, 0.5);
+  --qc-priority-high-text: #f87171;
+  --qc-priority-medium-bg: rgba(113, 63, 18, 0.5);
+  --qc-priority-medium-text: #facc15;
+  --qc-now-bg: rgba(22, 163, 74, 0.08);
+  --qc-now-border: rgba(22, 163, 74, 0.25);
+  --qc-now-text: #16a34a;
+}
+
+/* ---------------------------------------------------------------------------
+   Dark mode — warm charcoal tones
+   --------------------------------------------------------------------------- */
+
+.dark {
+  --qc-surface: #141210;
+  --qc-surface-secondary: #1C1A17;
+  --qc-surface-elevated: #262320;
+  --qc-border: #302C28;
+  --qc-text-primary: #F0EDE8;
+  --qc-text-secondary: #B5AFA9;
+  --qc-text-muted: #787069;
+  --qc-accent: #E8735A;
+  --qc-accent-hover: #F08A74;
+  --qc-accent-soft: #E8735A18;
+  --qc-success: #4ade80;
+  --qc-recording: #ef4444;
+  --qc-recording-text: #f87171;
+  --qc-speaker-remote: #34d399;
+  --qc-priority-high-bg: rgba(127, 29, 29, 0.5);
+  --qc-priority-high-text: #f87171;
+  --qc-priority-medium-bg: rgba(113, 63, 18, 0.5);
+  --qc-priority-medium-text: #fbbf24;
+  --qc-now-bg: rgba(74, 222, 128, 0.1);
+  --qc-now-border: rgba(74, 222, 128, 0.25);
+  --qc-now-text: #4ade80;
+}
+
+/* ---------------------------------------------------------------------------
+   Base styles
+   --------------------------------------------------------------------------- */
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle selection color */
+::selection {
+  background: var(--qc-accent);
+  color: white;
+}
+
+/* Custom scrollbar — thin and warm */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--qc-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--qc-text-muted);
+}
+
+/* Smooth transitions on interactive elements */
+button, a, input {
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}

@@ -247,6 +247,182 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Batch (pre-recorded) transcription — used for crash recovery
+// ---------------------------------------------------------------------------
+
+const DEEPGRAM_REST_URL = 'https://api.deepgram.com/v1/listen'
+
+/**
+ * Transcribe a pre-recorded WAV buffer via Deepgram's batch API.
+ *
+ * Used for crash recovery: we reconstruct a WAV from orphaned PCM
+ * chunks and send it as a single POST request.
+ *
+ * Returns transcript segments in the same format as the streaming provider.
+ */
+export async function transcribeBatch(
+  wavBuffer: Buffer,
+  apiKey: string,
+  config: { model: string; language: string; diarize: boolean }
+): Promise<{ segments: import('../../storage/models').TranscriptSegment[]; duration: number }> {
+  const params = new URLSearchParams({
+    model: config.model,
+    language: config.language,
+    channels: '2',
+    multichannel: 'true',
+    diarize: String(config.diarize),
+    smart_format: 'true',
+    punctuate: 'true'
+  })
+
+  const url = `${DEEPGRAM_REST_URL}?${params.toString()}`
+
+  log.info(
+    `[Deepgram Batch] Sending ${(wavBuffer.length / 1024 / 1024).toFixed(1)} MB WAV — ` +
+      `model=${config.model}, diarize=${config.diarize}`
+  )
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${apiKey}`,
+      'Content-Type': 'audio/wav'
+    },
+    body: wavBuffer
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`Deepgram batch API error ${response.status}: ${body.slice(0, 300)}`)
+  }
+
+  const data = (await response.json()) as DeepgramBatchResponse
+
+  const segments: import('../../storage/models').TranscriptSegment[] = []
+
+  for (const result of data.results?.channels ?? []) {
+    const channelIndex = result.channel_index ?? 0
+    const source = channelIndex === 0 ? 'microphone' as const : 'system' as const
+
+    for (const alt of result.alternatives ?? []) {
+      if (!alt.transcript?.trim()) continue
+
+      // Group words into paragraphs by speaker for system channel
+      if (source === 'system' && alt.words?.length) {
+        const groups = groupWordsBySpeaker(alt.words)
+        for (const group of groups) {
+          segments.push({
+            speaker: source === 'microphone' ? 'Me' : `Speaker ${group.speakerId}`,
+            speakerId: source === 'microphone' ? 0 : (group.speakerId ?? 0),
+            source,
+            start: group.start,
+            end: group.end,
+            text: group.text,
+            confidence: group.confidence,
+            words: group.words.map((w) => ({
+              word: w.word,
+              start: w.start,
+              end: w.end,
+              confidence: w.confidence,
+              speaker: w.speaker,
+              punctuated_word: w.punctuated_word
+            }))
+          })
+        }
+      } else {
+        // Mic channel — always "Me"
+        const words = alt.words ?? []
+        segments.push({
+          speaker: 'Me',
+          speakerId: 0,
+          source,
+          start: words[0]?.start ?? 0,
+          end: words[words.length - 1]?.end ?? 0,
+          text: alt.transcript,
+          confidence: alt.confidence ?? 0,
+          words: words.map((w) => ({
+            word: w.word,
+            start: w.start,
+            end: w.end,
+            confidence: w.confidence,
+            speaker: w.speaker,
+            punctuated_word: w.punctuated_word
+          }))
+        })
+      }
+    }
+  }
+
+  // Sort by start time
+  segments.sort((a, b) => a.start - b.start)
+
+  const duration = data.metadata?.duration ?? 0
+
+  log.info(`[Deepgram Batch] Transcription complete: ${segments.length} segments, ${duration.toFixed(1)}s`)
+
+  return { segments, duration }
+}
+
+/** Group consecutive words by speaker ID for diarization */
+function groupWordsBySpeaker(words: DeepgramWord[]): Array<{
+  speakerId: number
+  start: number
+  end: number
+  text: string
+  confidence: number
+  words: DeepgramWord[]
+}> {
+  const groups: Array<{
+    speakerId: number
+    start: number
+    end: number
+    text: string
+    confidence: number
+    words: DeepgramWord[]
+  }> = []
+
+  let current: typeof groups[0] | null = null
+
+  for (const w of words) {
+    const sid = w.speaker ?? 0
+    if (!current || current.speakerId !== sid) {
+      if (current) groups.push(current)
+      current = {
+        speakerId: sid,
+        start: w.start,
+        end: w.end,
+        text: w.punctuated_word ?? w.word,
+        confidence: w.confidence,
+        words: [w]
+      }
+    } else {
+      current.end = w.end
+      current.text += ' ' + (w.punctuated_word ?? w.word)
+      current.confidence = (current.confidence + w.confidence) / 2
+      current.words.push(w)
+    }
+  }
+  if (current) groups.push(current)
+
+  return groups
+}
+
+/** Deepgram batch API response shape */
+interface DeepgramBatchResponse {
+  metadata?: { duration: number }
+  results?: {
+    channels: Array<{
+      channel_index?: number
+      alternatives: Array<{
+        transcript: string
+        confidence: number
+        words: DeepgramWord[]
+      }>
+    }>
+  }
+}
+
 // Deepgram API response types (minimal, just what we use)
 interface DeepgramEvent {
   type: string

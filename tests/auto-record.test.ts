@@ -21,7 +21,8 @@ vi.mock('../src/main/calendar/matcher', () => ({
 
 vi.mock('electron', () => ({
   Notification: vi.fn().mockImplementation(() => ({
-    show: vi.fn()
+    show: vi.fn(),
+    on: vi.fn()
   }))
 }))
 

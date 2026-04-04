@@ -14,19 +14,21 @@
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
+    "rebuild:sqlite": "node -e \"const v = require('./node_modules/electron/package.json').version; const {execSync} = require('child_process'); execSync('cd ' + require.resolve('better-sqlite3/package.json').replace('/package.json','') + ' && npx prebuild-install --runtime electron --target ' + v + ' --arch ' + process.arch + ' --tag-prefix v', {stdio:'inherit'})\"",
+    "predev": "pnpm run rebuild:sqlite",
     "dev": "electron-vite dev; stty sane 2>/dev/null; echo",
     "dev:app": "electron-vite build && open node_modules/electron/dist/Electron.app --args \"$PWD\"",
     "build": "electron-vite build && electron-builder",
     "build:vite": "electron-vite build",
-    "build:native": "cd native && node-gyp rebuild",
+    "build:native": "cd native && npx node-gyp rebuild",
     "preview": "electron-vite preview",
     "lint": "eslint . --ext .ts,.tsx",
-    "pretest": "pnpm rebuild better-sqlite3 2>/dev/null || true",
+    "pretest": "node -e \"const {execSync} = require('child_process'); execSync('cd ' + require.resolve('better-sqlite3/package.json').replace('/package.json','') + ' && npx prebuild-install --tag-prefix v', {stdio:'inherit'})\"",
     "test": "vitest run",
-    "posttest": "electron-builder install-app-deps 2>/dev/null || true",
+    "posttest": "pnpm run rebuild:sqlite",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "pnpm run rebuild:sqlite"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

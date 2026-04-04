@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Lobster claw — open/recording state -->
+  <!-- Pincers spread wide apart, ear shape emerges in negative space -->
+
+  <!-- Upper arm — sweeps upward, inner edge curves like the outer ear (helix) -->
+  <path fill="#000" d="
+    M 27 8
+    C 24 5.5, 19 3.5, 14 3
+    C 9 2.5, 5 5, 4 9.5
+    C 3 14, 5 19, 9 21
+    L 10 14
+    C 10.5 10.5, 13 8.5, 16 8
+    C 19.5 7.5, 23.5 7.5, 27 8
+    Z
+  "/>
+
+  <!-- Lower arm — sweeps downward, inner edge curves like lower ear -->
+  <path fill="#000" d="
+    M 27 24
+    C 23.5 24.5, 19.5 24.5, 16 24
+    C 13 23.5, 10.5 21.5, 10 18
+    L 9 21
+    C 11 25, 16 28.5, 21 29
+    C 25 29.5, 28 27.5, 29 24.5
+    C 29.5 22.5, 28.5 23.5, 27 24
+    Z
+  "/>
+</svg>

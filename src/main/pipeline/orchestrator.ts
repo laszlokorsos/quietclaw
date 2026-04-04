@@ -23,6 +23,7 @@ import { AnthropicSummarizer } from './summarizer/anthropic'
 import { writeSummaryFiles } from '../storage/files'
 import { markSummarized } from '../storage/db'
 import { notifyMeetingSummarized } from '../api/ws'
+import { concatFloat32Arrays, padWithSilence, generateSlug } from './utils'
 import type { MatchResult } from '../calendar/matcher'
 import type { StreamingSttProvider, SttResult } from './stt/provider'
 import type { AudioCaptureProvider, AudioChunk } from '../audio/types'
@@ -88,6 +89,39 @@ export class PipelineOrchestrator {
   /** Get the current session ID (null if idle) */
   getSessionId(): string | null {
     return this.sessionId
+  }
+
+  /** Get info about the current recording session (null if not recording) */
+  getSessionInfo(): {
+    sessionId: string
+    startTime: string
+    title: string
+    calendarEvent?: {
+      title: string
+      attendees: Array<{ name: string; email: string }>
+      platform?: string
+      meetingLink?: string
+    }
+  } | null {
+    if (this.state !== 'recording' || !this.sessionId || !this.startTime) return null
+
+    const title = this.calendarMatch
+      ? this.calendarMatch.event.title
+      : `Unscheduled call — ${this.startTime.toLocaleDateString()} ${this.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+
+    return {
+      sessionId: this.sessionId,
+      startTime: this.startTime.toISOString(),
+      title,
+      calendarEvent: this.calendarMatch
+        ? {
+            title: this.calendarMatch.event.title,
+            attendees: this.calendarMatch.event.attendees,
+            platform: this.calendarMatch.event.platform,
+            meetingLink: this.calendarMatch.event.meetingLink
+          }
+        : undefined
+    }
   }
 
   /**
@@ -222,6 +256,23 @@ export class PipelineOrchestrator {
     this.setState('processing')
     log.info('[Pipeline] Stopping recording — processing...')
 
+    try {
+      return await this.processRecording()
+    } catch (err) {
+      log.error('[Pipeline] Fatal error during processing — resetting to idle:', err)
+      this.events.onError?.(err instanceof Error ? err : new Error(String(err)))
+      this.cleanup()
+      this.setState('idle')
+      throw err
+    }
+  }
+
+  /**
+   * Internal: run the full post-recording pipeline.
+   * Separated from stopRecording() so the outer method can catch any failure
+   * and guarantee a return to 'idle' state.
+   */
+  private async processRecording(): Promise<{ metadata: MeetingMetadata; transcript: Transcript }> {
     const endTime = new Date()
 
     // Stop the flush timer and do a final flush
@@ -275,7 +326,7 @@ export class PipelineOrchestrator {
     const title = this.calendarMatch
       ? this.calendarMatch.event.title
       : `Unscheduled call — ${this.startTime!.toLocaleDateString()} ${this.startTime!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    const slug = this.generateSlug(title)
+    const slug = generateSlug(title, this.sessionId!)
 
     const metadata: MeetingMetadata = {
       id: this.sessionId!,
@@ -312,8 +363,7 @@ export class PipelineOrchestrator {
     }
 
     // Auto-summarize if enabled and configured
-    const config2 = loadConfig()
-    if (config2.summarization.enabled) {
+    if (config.summarization.enabled) {
       try {
         const summarizer = new AnthropicSummarizer()
         if (summarizer.isConfigured()) {
@@ -352,12 +402,7 @@ export class PipelineOrchestrator {
     this.events.onComplete?.({ metadata, transcript })
 
     // Reset for next session
-    this.sessionId = null
-    this.startTime = null
-    this.segments = []
-    this.calendarMatch = null
-    this.sttProvider = null
-    this.speakerIdentifier = null
+    this.cleanup()
     this.setState('idle')
 
     return { metadata, transcript }
@@ -374,15 +419,15 @@ export class PipelineOrchestrator {
     if (this.micBuffer.length === 0 && this.sysBuffer.length === 0) return
 
     // Concatenate buffered chunks for each channel
-    const mic = this.concatFloat32Arrays(this.micBuffer)
-    const sys = this.concatFloat32Arrays(this.sysBuffer)
+    const mic = concatFloat32Arrays(this.micBuffer)
+    const sys = concatFloat32Arrays(this.sysBuffer)
     this.micBuffer = []
     this.sysBuffer = []
 
     // Pad shorter channel with silence
     const length = Math.max(mic.length, sys.length)
-    const micPadded = mic.length >= length ? mic : this.padWithSilence(mic, length)
-    const sysPadded = sys.length >= length ? sys : this.padWithSilence(sys, length)
+    const micPadded = mic.length >= length ? mic : padWithSilence(mic, length)
+    const sysPadded = sys.length >= length ? sys : padWithSilence(sys, length)
 
     const stereo = this.interleaveStereo(micPadded, sysPadded)
     this.sttProvider?.send(stereo)
@@ -391,28 +436,6 @@ export class PipelineOrchestrator {
     if (this.chunksSent % 25 === 0) {
       log.info(`[Pipeline] Sent ${this.chunksSent} stereo packets to Deepgram (${length} samples)`)
     }
-  }
-
-  /** Concatenate an array of Float32Arrays into one */
-  private concatFloat32Arrays(arrays: Float32Array[]): Float32Array {
-    if (arrays.length === 0) return new Float32Array(0)
-    if (arrays.length === 1) return arrays[0]
-    const totalLength = arrays.reduce((sum, a) => sum + a.length, 0)
-    const result = new Float32Array(totalLength)
-    let offset = 0
-    for (const arr of arrays) {
-      result.set(arr, offset)
-      offset += arr.length
-    }
-    return result
-  }
-
-  /** Pad a Float32Array with silence (zeros) to reach the target length */
-  private padWithSilence(arr: Float32Array, targetLength: number): Float32Array {
-    if (arr.length >= targetLength) return arr
-    const padded = new Float32Array(targetLength)
-    padded.set(arr)
-    return padded
   }
 
   /**
@@ -508,28 +531,6 @@ export class PipelineOrchestrator {
     }
 
     return merged
-  }
-
-  /**
-   * Generate a filesystem-safe slug from a title.
-   *
-   * Rules from CLAUDE.md:
-   * - Lowercased, hyphenated, max 50 characters
-   * - Non-ASCII stripped
-   * - 4-char hash suffix for uniqueness
-   */
-  private generateSlug(title: string): string {
-    const base = title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 50)
-
-    // 4-char hash suffix from session ID
-    const hash = this.sessionId!.slice(0, 4)
-    return `${base}-${hash}`
   }
 
   /** Reset session state after a failure */

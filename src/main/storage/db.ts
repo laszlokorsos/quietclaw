@@ -289,3 +289,87 @@ export function countMeetings(): number {
     .get() as { count: number }
   return row.count
 }
+
+/**
+ * Scan the meetings directory for meetings on disk that aren't in the DB.
+ *
+ * This handles the case where meetings were written to disk but DB indexing
+ * failed (e.g., because better-sqlite3 was compiled for the wrong Node ABI).
+ * On next successful startup, this discovers and indexes them.
+ */
+export function syncFilesystemToDb(dataDir: string): number {
+  const d = getDb()
+  let indexed = 0
+
+  // Walk: dataDir / YYYY-MM-DD / {slug} / metadata.json
+  let dateDirs: string[]
+  try {
+    dateDirs = fs.readdirSync(dataDir).filter((name) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(name) && name >= '2020-01-01'
+    )
+  } catch {
+    return 0
+  }
+
+  for (const dateDir of dateDirs) {
+    const datePath = path.join(dataDir, dateDir)
+    let slugDirs: string[]
+    try {
+      slugDirs = fs.readdirSync(datePath).filter((name) => {
+        const stat = fs.statSync(path.join(datePath, name))
+        return stat.isDirectory()
+      })
+    } catch {
+      continue
+    }
+
+    for (const slug of slugDirs) {
+      const meetingDir = path.join(datePath, slug)
+      const metadataPath = path.join(meetingDir, 'metadata.json')
+
+      if (!fs.existsSync(metadataPath)) continue
+
+      // Read metadata
+      let metadata: MeetingMetadata
+      try {
+        metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'))
+      } catch {
+        continue
+      }
+
+      // Check if already indexed
+      const existing = d
+        .prepare('SELECT id FROM meetings WHERE id = ?')
+        .get(metadata.id) as { id: string } | undefined
+      if (existing) continue
+
+      // Read transcript for FTS
+      let transcriptText = ''
+      try {
+        const tPath = path.join(meetingDir, 'transcript.json')
+        if (fs.existsSync(tPath)) {
+          const transcript = JSON.parse(fs.readFileSync(tPath, 'utf-8'))
+          transcriptText = transcript.segments
+            .map((s: { speaker: string; text: string }) => `${s.speaker}: ${s.text}`)
+            .join('\n')
+        }
+      } catch {
+        // Fine — index without transcript text
+      }
+
+      // Index it
+      try {
+        indexMeeting(metadata, meetingDir, transcriptText)
+        indexed++
+      } catch (err) {
+        log.error(`[DB] Failed to index discovered meeting ${metadata.id}:`, err)
+      }
+    }
+  }
+
+  if (indexed > 0) {
+    log.info(`[DB] Discovered and indexed ${indexed} meeting(s) from filesystem`)
+  }
+
+  return indexed
+}

@@ -186,7 +186,7 @@ export function createRoutes(): Router {
     }
   })
 
-  // Trigger summarization (placeholder — actual summarization comes in Milestone 5)
+  // Trigger summarization for a meeting
   router.post('/meetings/:id/summarize', async (req, res) => {
     try {
       const dir = getMeetingDir(req.params.id)
@@ -255,8 +255,7 @@ export function createRoutes(): Router {
       action.status = status
 
       // Write updated actions back to disk
-      const { writeSummaryFiles, readMeetingMetadata: readMeta } = require('../storage/files')
-      const metadata = readMeta(dir)
+      const metadata = readMeetingMetadata(dir)
       const summary = readSummary(dir)
       if (metadata && summary) {
         writeSummaryFiles(metadata, summary, actions)

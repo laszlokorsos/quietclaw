@@ -57,6 +57,8 @@ export default function MeetingDetail({
   const [actions, setActions] = useState<ActionItem[]>([])
   const [tab, setTab] = useState<'transcript' | 'summary' | 'actions'>('transcript')
   const [loading, setLoading] = useState(true)
+  const [summarizing, setSummarizing] = useState(false)
+  const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -78,6 +80,22 @@ export default function MeetingDetail({
     setSummary(s)
     setActions(a ?? [])
     setLoading(false)
+
+    api.secrets.hasAnthropicKey().then(setHasAnthropicKey).catch(() => {})
+  }
+
+  async function handleSummarize() {
+    if (!api || summarizing) return
+    setSummarizing(true)
+    try {
+      const result = await api.meetings.summarize(meetingId)
+      setSummary(result.summary)
+      setActions(result.actions ?? [])
+      setTab('summary')
+    } catch (err) {
+      console.error('Summarization failed:', err)
+    }
+    setSummarizing(false)
   }
 
   function formatTimestamp(seconds: number) {
@@ -87,45 +105,45 @@ export default function MeetingDetail({
   }
 
   if (loading) {
-    return <div className="p-5 text-gray-500 text-sm">Loading...</div>
+    return <div className="p-6 text-text-muted text-sm">Loading...</div>
   }
 
   if (!meta || !transcript) {
-    return <div className="p-5 text-gray-500 text-sm">Meeting not found</div>
+    return <div className="p-6 text-text-muted text-sm">Meeting not found</div>
   }
 
   return (
-    <div className="p-5">
+    <div className="p-6">
       {/* Back + Title */}
-      <button onClick={onBack} className="text-sm text-gray-500 hover:text-gray-300 mb-3 transition-colors">
+      <button onClick={onBack} className="text-sm text-text-secondary hover:text-text-primary mb-3 transition-colors">
         &larr; Back to meetings
       </button>
 
-      <h2 className="text-lg font-semibold mb-1">{meta.title}</h2>
-      <p className="text-xs text-gray-500 mb-4">
+      <h2 className="text-xl font-semibold tracking-tight mb-1">{meta.title}</h2>
+      <p className="text-xs text-text-secondary mb-5">
         {new Date(meta.startTime).toLocaleDateString()} &middot;{' '}
         {new Date(meta.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        {' — '}
+        {' \u2014 '}
         {new Date(meta.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         &middot; {Math.round(meta.duration / 60)}m
         &middot; {meta.speakers.map((s) => s.name).join(', ')}
       </p>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-4 border-b border-gray-800">
+      <div className="flex gap-1 mb-5 border-b border-border">
         {(['transcript', 'summary', 'actions'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`px-3 py-2 text-sm capitalize transition-colors border-b-2 -mb-px ${
               tab === t
-                ? 'border-indigo-500 text-white'
-                : 'border-transparent text-gray-500 hover:text-gray-300'
+                ? 'border-accent text-text-primary'
+                : 'border-transparent text-text-muted hover:text-text-secondary'
             }`}
           >
             {t}
             {t === 'actions' && actions.length > 0 && (
-              <span className="ml-1.5 text-xs text-gray-500">({actions.length})</span>
+              <span className="ml-1.5 text-xs text-text-muted">({actions.length})</span>
             )}
           </button>
         ))}
@@ -138,13 +156,13 @@ export default function MeetingDetail({
             <div key={i} className="group">
               <div className="flex items-baseline gap-2 mb-0.5">
                 <span className={`text-xs font-medium ${
-                  seg.source === 'microphone' ? 'text-indigo-400' : 'text-emerald-400'
+                  seg.source === 'microphone' ? 'text-accent' : 'text-speaker-remote'
                 }`}>
                   {seg.speaker}
                 </span>
-                <span className="text-xs text-gray-600">{formatTimestamp(seg.start)}</span>
+                <span className="text-xs text-text-muted">{formatTimestamp(seg.start)}</span>
               </div>
-              <p className="text-sm text-gray-300 leading-relaxed">{seg.text}</p>
+              <p className="text-sm text-text-secondary leading-relaxed">{seg.text}</p>
             </div>
           ))}
         </div>
@@ -152,25 +170,25 @@ export default function MeetingDetail({
 
       {tab === 'summary' && (
         summary ? (
-          <div className="space-y-5">
+          <div className="space-y-6">
             <div>
-              <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
                 Executive Summary
               </h3>
-              <p className="text-sm text-gray-300 leading-relaxed">{summary.executive_summary}</p>
+              <p className="text-sm text-text-secondary leading-relaxed">{summary.executive_summary}</p>
             </div>
 
             {summary.topics.length > 0 && (
               <div>
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
                   Topics
                 </h3>
                 <div className="space-y-3">
                   {summary.topics.map((topic, i) => (
-                    <div key={i} className="bg-gray-900 rounded-lg p-3">
-                      <p className="text-sm font-medium text-gray-200">{topic.topic}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{topic.participants.join(', ')}</p>
-                      <p className="text-sm text-gray-400 mt-1">{topic.summary}</p>
+                    <div key={i} className="bg-surface-secondary rounded-xl p-4">
+                      <p className="text-sm font-medium text-text-primary">{topic.topic}</p>
+                      <p className="text-xs text-text-muted mt-0.5">{topic.participants.join(', ')}</p>
+                      <p className="text-sm text-text-secondary mt-1.5">{topic.summary}</p>
                     </div>
                   ))}
                 </div>
@@ -179,13 +197,13 @@ export default function MeetingDetail({
 
             {summary.decisions.length > 0 && (
               <div>
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
                   Decisions
                 </h3>
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {summary.decisions.map((d, i) => (
-                    <li key={i} className="text-sm text-gray-300 flex gap-2">
-                      <span className="text-indigo-400 shrink-0">-</span>
+                    <li key={i} className="text-sm text-text-secondary flex gap-2">
+                      <span className="text-accent shrink-0">&bull;</span>
                       {d}
                     </li>
                   ))}
@@ -195,17 +213,40 @@ export default function MeetingDetail({
 
             {summary.sentiment && (
               <div>
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
                   Tone
                 </h3>
-                <p className="text-sm text-gray-400">{summary.sentiment}</p>
+                <p className="text-sm text-text-secondary">{summary.sentiment}</p>
               </div>
+            )}
+
+            {hasAnthropicKey && (
+              <button
+                onClick={handleSummarize}
+                disabled={summarizing}
+                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+              >
+                {summarizing ? 'Re-summarizing...' : 'Re-summarize'}
+              </button>
             )}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
-            No summary available. Set an Anthropic API key in Settings to enable summarization.
-          </p>
+          <div className="space-y-3">
+            <p className="text-sm text-text-secondary">
+              {hasAnthropicKey
+                ? 'No summary generated yet.'
+                : 'No summary available. Set an Anthropic API key in Settings to enable summarization.'}
+            </p>
+            {hasAnthropicKey && (
+              <button
+                onClick={handleSummarize}
+                disabled={summarizing}
+                className="px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover disabled:opacity-40 transition-colors"
+              >
+                {summarizing ? 'Generating Summary...' : 'Generate Summary'}
+              </button>
+            )}
+          </div>
         )
       )}
 
@@ -213,27 +254,27 @@ export default function MeetingDetail({
         actions.length > 0 ? (
           <div className="space-y-2">
             {actions.map((action) => (
-              <div key={action.id} className="bg-gray-900 rounded-lg p-3 flex items-start gap-3">
-                <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 mt-0.5 ${
-                  action.priority === 'high' ? 'bg-red-900/50 text-red-400' :
-                  action.priority === 'medium' ? 'bg-yellow-900/50 text-yellow-400' :
-                  'bg-gray-800 text-gray-400'
+              <div key={action.id} className="bg-surface-secondary rounded-xl p-4 flex items-start gap-3">
+                <span className={`text-xs px-1.5 py-0.5 rounded-lg font-medium shrink-0 mt-0.5 ${
+                  action.priority === 'high' ? 'bg-priority-high-bg text-priority-high-text' :
+                  action.priority === 'medium' ? 'bg-priority-medium-bg text-priority-medium-text' :
+                  'bg-surface-elevated text-text-secondary'
                 }`}>
                   {action.priority}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-gray-200">{action.description}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-sm text-text-primary">{action.description}</p>
+                  <p className="text-xs text-text-muted mt-0.5">
                     {action.assignee}
                     {action.agent_executable && (
-                      <span className="ml-2 text-indigo-400">Agent-executable</span>
+                      <span className="ml-2 text-accent">Agent-executable</span>
                     )}
                   </p>
                 </div>
                 <span className={`text-xs shrink-0 ${
-                  action.status === 'completed' ? 'text-green-400' :
+                  action.status === 'completed' ? 'text-success' :
                   action.status === 'in_progress' ? 'text-yellow-400' :
-                  'text-gray-500'
+                  'text-text-muted'
                 }`}>
                   {action.status}
                 </span>
@@ -241,7 +282,7 @@ export default function MeetingDetail({
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No action items for this meeting.</p>
+          <p className="text-sm text-text-secondary">No action items for this meeting.</p>
         )
       )}
     </div>

@@ -16,6 +16,7 @@ import { notifyRecordingStarted, notifyRecordingStopped, notifyMeetingProcessed 
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
 let tray: Tray | null = null
+let processingPulseTimer: ReturnType<typeof setInterval> | null = null
 
 function loadTrayIcon(filename: string): Electron.NativeImage {
   const iconPath = path.join(__dirname, '../../resources', filename)
@@ -73,7 +74,6 @@ export function setupTray(
                 `[Tray] Recording stopped — ${result.transcript.segments.length} segments, ` +
                   `${result.metadata.duration.toFixed(1)}s`
               )
-              mainWindow?.webContents.send('recording-status', { recording: false })
               notifyRecordingStopped(result.metadata.id)
             } catch (err) {
               log.error('[Tray] Failed to stop recording:', err)
@@ -83,7 +83,6 @@ export function setupTray(
               // TODO: Get user name from config/calendar (Milestone 4)
               await orchestrator.startRecording('Me')
               log.info('[Tray] Recording started')
-              mainWindow?.webContents.send('recording-status', { recording: true })
               notifyRecordingStarted(orchestrator.getSessionId() ?? '')
             } catch (err) {
               log.error('[Tray] Failed to start recording:', err)
@@ -184,7 +183,31 @@ export function setupTray(
         error: 'QuietClaw — Error'
       }
       tray?.setToolTip(tooltips[state] ?? 'QuietClaw')
-      tray?.setImage(state === 'recording' ? iconRecording : iconIdle)
+
+      // Stop any existing pulse animation
+      if (processingPulseTimer) {
+        clearInterval(processingPulseTimer)
+        processingPulseTimer = null
+      }
+
+      if (state === 'recording') {
+        tray?.setImage(iconRecording)
+        // Notify renderer — works for both manual and auto-started recordings
+        const sessionInfo = orchestrator.getSessionInfo()
+        mainWindow?.webContents.send('recording-status', { recording: true, sessionInfo })
+      } else if (state === 'processing') {
+        // Pulse: alternate between visible and dimmed icon
+        let visible = true
+        tray?.setImage(iconIdle)
+        processingPulseTimer = setInterval(() => {
+          visible = !visible
+          tray?.setImage(visible ? iconIdle : nativeImage.createEmpty())
+        }, 800)
+        mainWindow?.webContents.send('recording-status', { recording: false })
+      } else {
+        tray?.setImage(iconIdle)
+        mainWindow?.webContents.send('recording-status', { recording: false })
+      }
       updateMenu()
     },
     onSegment: (segment) => {
