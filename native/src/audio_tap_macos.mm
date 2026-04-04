@@ -451,7 +451,7 @@ void AudioTapMacOS::FlushToTempFile() {
 // This avoids per-process audio APIs (kAudioProcessProperty*) which are unreliable.
 // ---------------------------------------------------------------------------
 
-// Native meeting apps (NOT browsers)
+// Native meeting app bundle IDs — used to filter SCShareableContent windows
 static bool IsNativeMeetingApp(NSString* bundleId) {
     static NSSet* meetingApps = [NSSet setWithObjects:
         @"us.zoom.xos",                // Zoom
@@ -463,6 +463,45 @@ static bool IsNativeMeetingApp(NSString* bundleId) {
         nil
     ];
     return [meetingApps containsObject:bundleId];
+}
+
+// Window titles that indicate an active call in a native meeting app.
+// Must distinguish from the app's home screen or lobby.
+static bool IsNativeAppInMeeting(NSString* bundleId, NSString* title) {
+    if (!title || title.length == 0) return false;
+
+    if ([bundleId isEqualToString:@"us.zoom.xos"]) {
+        // Zoom in-meeting: "Zoom Meeting" or the actual meeting name
+        // Zoom home screen: "Zoom Workplace" or "Zoom"
+        // Zoom lobby/waiting room: "Zoom" or "Waiting Room"
+        if ([title containsString:@"Zoom Meeting"]) return true;
+        // Zoom also shows the meeting topic as the window title during a call
+        // but NOT "Zoom Workplace", "Zoom", or "Settings"
+        if (![title isEqualToString:@"Zoom"] &&
+            ![title containsString:@"Zoom Workplace"] &&
+            ![title containsString:@"Settings"] &&
+            ![title containsString:@"Waiting"]) {
+            // Could be the meeting name — but we need a positive signal.
+            // Check if there's a "meeting controls" toolbar window too
+            // For now, only match "Zoom Meeting" explicitly
+        }
+        return false;
+    }
+
+    if ([bundleId hasPrefix:@"com.microsoft.teams"]) {
+        // Teams in-meeting shows the meeting name or "Meeting with..."
+        // Teams home shows "Microsoft Teams"
+        if ([title containsString:@"Meeting"] || [title containsString:@"Call"]) return true;
+        return false;
+    }
+
+    if ([bundleId isEqualToString:@"com.apple.FaceTime"]) {
+        // FaceTime always means a call when it's the active window
+        return true;
+    }
+
+    // For other apps, assume if the app is running it's in a meeting
+    return true;
 }
 
 // Window title patterns that indicate an ACTIVE meeting in a browser.
@@ -677,26 +716,9 @@ bool AudioTapMacOS::IsMeetingDetectionActive() const {
 }
 
 void AudioTapMacOS::CheckForActiveMeeting() {
-    // --- Step 1: Check for running native meeting apps (Zoom, Teams, FaceTime, etc.) ---
-    // (Only log on state changes to avoid spamming)
-    NSArray<NSRunningApplication*>* runningApps = [[NSWorkspace sharedWorkspace] runningApplications];
-    for (NSRunningApplication* app in runningApps) {
-        NSString* bundleId = app.bundleIdentifier;
-        if (!bundleId) continue;
-
-        if (IsNativeMeetingApp(bundleId) && !app.isTerminated) {
-            if (!meetingCurrentlyDetected_) {
-                char logBuf[256];
-                snprintf(logBuf, sizeof(logBuf), "Native meeting app running: %s", [bundleId UTF8String]);
-                LogToJS(logBuf);
-                meetingCurrentlyDetected_ = true;
-                NotifyMeetingEvent("meeting:detected", [bundleId UTF8String], "");
-            }
-            return;
-        }
-    }
-
-    // --- Step 2: Check browser windows for meeting titles via ScreenCaptureKit ---
+    // Single SCShareableContent scan handles both native apps and browsers.
+    // For browsers: look for meeting tab titles with 🔊 (active audio).
+    // For native apps: look for in-meeting window titles (not home/lobby).
     if (@available(macOS 12.3, *)) {
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
         __block NSString* detectedBundleId = nil;
@@ -713,8 +735,17 @@ void AudioTapMacOS::CheckForActiveMeeting() {
                 for (SCWindow* window in content.windows) {
                     NSString* title = window.title;
                     NSString* bundleId = window.owningApplication.bundleIdentifier;
+                    if (!title || !bundleId) continue;
 
-                    if (title && bundleId && IsMeetingWindowTitle(title)) {
+                    // Check browser meeting windows (Google Meet, Zoom web, etc.)
+                    if (IsMeetingWindowTitle(title)) {
+                        detectedBundleId = bundleId;
+                        detectedTitle = title;
+                        break;
+                    }
+
+                    // Check native meeting app windows (Zoom, Teams, etc.)
+                    if (IsNativeMeetingApp(bundleId) && IsNativeAppInMeeting(bundleId, title)) {
                         detectedBundleId = bundleId;
                         detectedTitle = title;
                         break;
@@ -729,7 +760,7 @@ void AudioTapMacOS::CheckForActiveMeeting() {
         if (detectedBundleId && detectedTitle) {
             if (!meetingCurrentlyDetected_) {
                 char logBuf[512];
-                snprintf(logBuf, sizeof(logBuf), "Meeting window found: %s", [detectedTitle UTF8String]);
+                snprintf(logBuf, sizeof(logBuf), "Meeting detected: %s", [detectedTitle UTF8String]);
                 LogToJS(logBuf);
                 meetingCurrentlyDetected_ = true;
                 NotifyMeetingEvent("meeting:detected",
@@ -742,7 +773,7 @@ void AudioTapMacOS::CheckForActiveMeeting() {
 
     // No meeting found
     if (meetingCurrentlyDetected_) {
-        LogToJS("Meeting window no longer detected");
+        LogToJS("Meeting no longer detected");
         meetingCurrentlyDetected_ = false;
         NotifyMeetingEvent("meeting:ended", "", "");
     }
