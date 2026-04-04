@@ -170,14 +170,13 @@ app.whenReady().then(async () => {
 
   // Set up system tray (pass orchestrator for recording control)
   if (orchestrator) {
-    const macCapture = audioCapture as import('./audio/capture-macos').MacOSAudioCapture | undefined
-    setupTray(mainWindow, orchestrator, macCapture ?? undefined)
+    setupTray(mainWindow, orchestrator)
   }
 
   // Set up IPC handlers for renderer communication
   setupIpcHandlers(audioCapture, orchestrator)
 
-  // Start auto-recording (meeting app detection via Core Audio)
+  // Start auto-recording (meeting app detection via Core Audio) — always on
   if (audioCapture && orchestrator) {
     const { MacOSAudioCapture } = await import('./audio/capture-macos')
     if (audioCapture instanceof MacOSAudioCapture) {

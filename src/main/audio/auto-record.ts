@@ -74,27 +74,6 @@ export function stopAutoRecord(): void {
   log.info('[AutoRecord] Meeting detection stopped')
 }
 
-/**
- * Check whether auto-recording is currently enabled.
- */
-export function isAutoRecordEnabled(): boolean {
-  return enabled
-}
-
-/**
- * Toggle auto-recording on/off.
- */
-export function setAutoRecordEnabled(
-  value: boolean,
-  capture: MacOSAudioCapture,
-  orchestrator: PipelineOrchestrator
-): void {
-  if (value && !enabled) {
-    startAutoRecord(capture, orchestrator)
-  } else if (!value && enabled) {
-    stopAutoRecord()
-  }
-}
 
 /**
  * Handle a meeting detection event from the native layer.

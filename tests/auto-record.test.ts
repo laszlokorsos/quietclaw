@@ -27,21 +27,21 @@ vi.mock('electron', () => ({
 
 import {
   startAutoRecord,
-  stopAutoRecord,
-  isAutoRecordEnabled,
-  setAutoRecordEnabled
+  stopAutoRecord
 } from '../src/main/audio/auto-record'
 
 type MeetingDetectionCallback = (event: { event: string; bundleId: string; windowTitle: string }) => void
 
 function makeMockCapture() {
   let detectionCallback: MeetingDetectionCallback | null = null
+  let active = false
   return {
     startMeetingDetection: vi.fn((cb: MeetingDetectionCallback) => {
       detectionCallback = cb
+      active = true
     }),
-    stopMeetingDetection: vi.fn(),
-    isMeetingDetectionActive: vi.fn().mockReturnValue(false),
+    stopMeetingDetection: vi.fn(() => { active = false }),
+    isMeetingDetectionActive: vi.fn(() => active),
     // Helper to simulate events from native layer
     _simulateEvent(event: string, bundleId: string, windowTitle = '') {
       detectionCallback?.({ event, bundleId, windowTitle })
@@ -71,33 +71,19 @@ describe('Auto-Record (Meeting Detection)', () => {
     stopAutoRecord()
   })
 
-  it('starts disabled by default', () => {
-    expect(isAutoRecordEnabled()).toBe(false)
-  })
-
-  it('enables when startAutoRecord is called', () => {
+  it('starts meeting detection when startAutoRecord is called', () => {
     const capture = makeMockCapture()
     const orch = makeOrchestrator()
     startAutoRecord(capture as any, orch as any)
-    expect(isAutoRecordEnabled()).toBe(true)
     expect(capture.startMeetingDetection).toHaveBeenCalled()
   })
 
-  it('disables when stopAutoRecord is called', () => {
+  it('stops meeting detection when stopAutoRecord is called', () => {
     const capture = makeMockCapture()
     const orch = makeOrchestrator()
     startAutoRecord(capture as any, orch as any)
     stopAutoRecord()
-    expect(isAutoRecordEnabled()).toBe(false)
-  })
-
-  it('toggles via setAutoRecordEnabled', () => {
-    const capture = makeMockCapture()
-    const orch = makeOrchestrator()
-    setAutoRecordEnabled(true, capture as any, orch as any)
-    expect(isAutoRecordEnabled()).toBe(true)
-    setAutoRecordEnabled(false, capture as any, orch as any)
-    expect(isAutoRecordEnabled()).toBe(false)
+    expect(capture.stopMeetingDetection).toHaveBeenCalled()
   })
 
   it('starts recording when meeting:detected event fires', async () => {
