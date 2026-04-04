@@ -98,6 +98,13 @@ export function setupTray(
         : []),
       { type: 'separator' },
       {
+        label: 'Open QuietClaw',
+        click: () => {
+          mainWindow?.show()
+          mainWindow?.focus()
+        }
+      },
+      {
         label: 'Quit',
         click: () => {
           app.quit()
@@ -173,10 +180,4 @@ export function setupTray(
   })
 
   updateMenu()
-
-  // Click on tray icon opens the main window
-  tray.on('click', () => {
-    mainWindow?.show()
-    mainWindow?.focus()
-  })
 }
