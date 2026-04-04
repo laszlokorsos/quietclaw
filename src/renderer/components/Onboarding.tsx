@@ -133,22 +133,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         <div className="mb-8">
           {step === 'consent' && (
             <div className="space-y-4">
-              <div className="bg-surface-secondary rounded-xl p-4 space-y-3">
-                <div className="flex gap-3">
-                  <svg className="w-5 h-5 text-text-muted shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="16" x2="12" y2="12" />
-                    <line x1="12" y1="8" x2="12.01" y2="8" />
-                  </svg>
-                  <p className="text-sm text-text-secondary leading-relaxed">
-                    Recording laws vary by location. Some jurisdictions require the consent of all participants before a conversation can be recorded, while others require only one party's consent.
-                  </p>
-                </div>
-                <p className="text-sm text-text-secondary leading-relaxed pl-8">
-                  It is your responsibility to understand and comply with the recording and consent laws that apply in your jurisdiction and the jurisdictions of other meeting participants.
-                </p>
-                <p className="text-sm text-text-secondary leading-relaxed pl-8">
-                  QuietClaw includes an optional consent notification feature (see Settings) that can announce recording to other participants.
+              <div className="bg-surface-secondary rounded-xl p-4">
+                <p className="text-sm text-text-secondary leading-relaxed">
+                  Recording laws vary by location. Some jurisdictions require the consent of all participants before a conversation can be recorded. It is your responsibility to understand and comply with the laws that apply to you and the other participants in your meetings.
                 </p>
               </div>
               <label className="flex items-start gap-3 cursor-pointer select-none">

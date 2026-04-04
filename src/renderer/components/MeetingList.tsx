@@ -123,7 +123,7 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
 
     api.meetings.list(50)
       .then((rows: Meeting[]) => setMeetings(rows ?? []))
-      .catch(() => setMeetings([]))
+      .catch((err: unknown) => { console.error('[MeetingList] Failed to load meetings:', err); setMeetings([]) })
       .finally(() => setLoadingMeetings(false))
 
     api.calendar.events()

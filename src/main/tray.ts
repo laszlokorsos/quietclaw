@@ -10,8 +10,6 @@ import { Tray, Menu, BrowserWindow, nativeImage, app } from 'electron'
 import path from 'node:path'
 import log from 'electron-log/main'
 import { hasSecret } from './config/secrets'
-import { showApiKeyDialog } from './dialogs'
-import { listAccounts, addGoogleAccount, removeAccount } from './calendar/accounts'
 import { notifyRecordingStarted, notifyRecordingStopped, notifyMeetingProcessed } from './api/ws'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
@@ -80,7 +78,6 @@ export function setupTray(
             }
           } else {
             try {
-              // TODO: Get user name from config/calendar (Milestone 4)
               await orchestrator.startRecording('Me')
               log.info('[Tray] Recording started')
               notifyRecordingStarted(orchestrator.getSessionId() ?? '')
@@ -99,67 +96,6 @@ export function setupTray(
             }
           ]
         : []),
-      { type: 'separator' },
-      {
-        label: 'Settings',
-        submenu: [
-          {
-            label: hasDeepgramKey
-              ? 'Deepgram API Key (configured)'
-              : 'Deepgram API Key (not set)',
-            click: async () => {
-              await showApiKeyDialog()
-              updateMenu()
-            }
-          },
-          { type: 'separator' },
-          ...(() => {
-            const accounts = listAccounts()
-            const accountItems = accounts.map((account) => ({
-              label: `✓ ${account.email}`,
-              submenu: [
-                {
-                  label: 'Remove Account',
-                  click: () => {
-                    removeAccount(account.email)
-                    updateMenu()
-                  }
-                }
-              ]
-            }))
-            return [
-              {
-                label: accounts.length > 0
-                  ? `Google Calendar (${accounts.length} connected)`
-                  : 'Google Calendar (not connected)',
-                submenu: [
-                  ...accountItems,
-                  ...(accountItems.length > 0 ? [{ type: 'separator' as const }] : []),
-                  {
-                    label: 'Connect Account...',
-                    click: async () => {
-                      try {
-                        const email = await addGoogleAccount()
-                        log.info(`[Tray] Calendar account added: ${email}`)
-                        updateMenu()
-                      } catch (err) {
-                        log.error('[Tray] Calendar OAuth failed:', err)
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
-          })()
-        ]
-      },
-      { type: 'separator' },
-      {
-        label: 'Open QuietClaw',
-        click: () => {
-          mainWindow?.show()
-        }
-      },
       { type: 'separator' },
       {
         label: 'Quit',
@@ -238,8 +174,9 @@ export function setupTray(
 
   updateMenu()
 
-  // Double-click on tray opens the window
-  tray.on('double-click', () => {
+  // Click on tray icon opens the main window
+  tray.on('click', () => {
     mainWindow?.show()
+    mainWindow?.focus()
   })
 }
