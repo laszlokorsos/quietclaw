@@ -23,6 +23,7 @@ import { PipelineOrchestrator } from './pipeline/orchestrator'
 import { initDatabase, closeDatabase } from './storage/db'
 import { startApiServer, stopApiServer } from './api/server'
 import { startCalendarSync, stopCalendarSync } from './calendar/sync'
+import { startAutoRecord, stopAutoRecord } from './audio/auto-record'
 import type { AudioCaptureProvider } from './audio/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -175,6 +176,11 @@ app.whenReady().then(async () => {
   // Set up IPC handlers for renderer communication
   setupIpcHandlers(audioCapture, orchestrator)
 
+  // Start auto-recording watcher (calendar-based)
+  if (orchestrator) {
+    startAutoRecord(orchestrator)
+  }
+
   // Check for orphaned recordings from a previous crash
   checkCrashRecovery()
 
@@ -190,6 +196,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', async () => {
   (app as any).isQuitting = true
+  stopAutoRecord()
   stopCalendarSync()
   await stopApiServer()
   closeDatabase()

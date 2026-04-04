@@ -10,9 +10,13 @@ files:
 extraResources:
   - from: resources/default_config.toml
     to: default_config.toml
+  - from: resources/tray-icon.png
+    to: tray-icon.png
+  - from: resources/tray-icon-recording.png
+    to: tray-icon-recording.png
 mac:
   category: public.app-category.productivity
-  icon: resources/icon.icns
+  icon: resources/icon.png
   target:
     - dmg
     - zip

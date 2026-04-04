@@ -35,6 +35,7 @@ import {
 } from '../storage/files'
 import { markSummarized } from '../storage/db'
 import { AnthropicSummarizer } from '../pipeline/summarizer/anthropic'
+import { notifyMeetingSummarized } from './ws'
 
 export function createRoutes(): Router {
   const router = Router()
@@ -219,6 +220,7 @@ export function createRoutes(): Router {
 
       writeSummaryFiles(metadata, summary, actions)
       markSummarized(req.params.id)
+      notifyMeetingSummarized(req.params.id, metadata.title, summary.topics.length, actions.length)
 
       res.json({ summary, actions })
     } catch (err) {

@@ -12,30 +12,33 @@ import log from 'electron-log/main'
 import { hasSecret } from './config/secrets'
 import { showApiKeyDialog } from './dialogs'
 import { listAccounts, addGoogleAccount, removeAccount } from './calendar/accounts'
+import { isAutoRecordEnabled, setAutoRecordEnabled } from './audio/auto-record'
+import { notifyRecordingStarted, notifyRecordingStopped, notifyMeetingProcessed } from './api/ws'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
 let tray: Tray | null = null
+
+function loadTrayIcon(filename: string): Electron.NativeImage {
+  const iconPath = path.join(__dirname, '../../resources', filename)
+  const loaded = nativeImage.createFromPath(iconPath)
+  if (loaded.isEmpty()) {
+    log.warn(`[Tray] Icon not found at ${iconPath}, using fallback`)
+    return nativeImage.createFromBuffer(Buffer.alloc(16 * 16 * 4, 0))
+  }
+  const icon = loaded.resize({ width: 16, height: 16 })
+  icon.setTemplateImage(true)
+  return icon
+}
 
 export function setupTray(
   mainWindow: BrowserWindow | null,
   orchestrator: PipelineOrchestrator
 ): void {
-  // Create tray icon (16x16 template image for macOS menu bar)
-  const iconPath = path.join(__dirname, '../../resources/tray-icon.png')
-  let trayIcon: Electron.NativeImage
-  const loaded = nativeImage.createFromPath(iconPath)
-  if (loaded.isEmpty()) {
-    log.warn(`[Tray] Icon not found at ${iconPath}, using fallback`)
-    // 16x16 black circle as fallback
-    trayIcon = nativeImage.createFromBuffer(Buffer.alloc(16 * 16 * 4, 0))
-  } else {
-    trayIcon = loaded.resize({ width: 16, height: 16 })
-  }
+  // Load both icon variants
+  const iconIdle = loadTrayIcon('tray-icon.png')
+  const iconRecording = loadTrayIcon('tray-icon-recording.png')
 
-  // On macOS, template images adapt to dark/light mode
-  trayIcon.setTemplateImage(true)
-
-  tray = new Tray(trayIcon)
+  tray = new Tray(iconIdle)
   tray.setToolTip('QuietClaw — Idle')
 
   const updateMenu = (): void => {
@@ -72,6 +75,7 @@ export function setupTray(
                   `${result.metadata.duration.toFixed(1)}s`
               )
               mainWindow?.webContents.send('recording-status', { recording: false })
+              notifyRecordingStopped(result.metadata.id)
             } catch (err) {
               log.error('[Tray] Failed to stop recording:', err)
             }
@@ -81,10 +85,21 @@ export function setupTray(
               await orchestrator.startRecording('Me')
               log.info('[Tray] Recording started')
               mainWindow?.webContents.send('recording-status', { recording: true })
+              notifyRecordingStarted(orchestrator.getSessionId() ?? '')
             } catch (err) {
               log.error('[Tray] Failed to start recording:', err)
             }
           }
+          updateMenu()
+        }
+      },
+      {
+        label: 'Auto-Record from Calendar',
+        type: 'checkbox',
+        checked: isAutoRecordEnabled(),
+        enabled: hasDeepgramKey,
+        click: () => {
+          setAutoRecordEnabled(!isAutoRecordEnabled(), orchestrator)
           updateMenu()
         }
       },
@@ -180,6 +195,7 @@ export function setupTray(
         error: 'QuietClaw — Error'
       }
       tray?.setToolTip(tooltips[state] ?? 'QuietClaw')
+      tray?.setImage(state === 'recording' ? iconRecording : iconIdle)
       updateMenu()
     },
     onSegment: (segment) => {
@@ -196,6 +212,12 @@ export function setupTray(
         id: meeting.metadata.id,
         title: meeting.metadata.title
       })
+      notifyMeetingProcessed(
+        meeting.metadata.id,
+        meeting.metadata.title,
+        meeting.transcript.segments.length,
+        meeting.metadata.duration
+      )
     },
     onError: (error) => {
       log.error('[Pipeline] Error:', error)

@@ -13,6 +13,7 @@ import log from 'electron-log/main'
 import { loadConfig } from '../config/settings'
 import { getApiAuthToken } from '../config/secrets'
 import { createRoutes } from './routes'
+import { attachWebSocket, closeWebSocket } from './ws'
 
 let server: Server | null = null
 
@@ -90,6 +91,9 @@ export function startApiServer(): void {
     log.info(`[API] Server listening on http://127.0.0.1:${port}`)
   })
 
+  // Attach WebSocket server for push notifications
+  attachWebSocket(server)
+
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       log.error(`[API] Port ${port} already in use — API server not started`)
@@ -100,7 +104,8 @@ export function startApiServer(): void {
 }
 
 /** Stop the API server */
-export function stopApiServer(): Promise<void> {
+export async function stopApiServer(): Promise<void> {
+  await closeWebSocket()
   return new Promise((resolve) => {
     if (!server) {
       resolve()
