@@ -15,6 +15,8 @@ import { loadConfig } from '../config/settings'
 import { getDeepgramApiKey } from '../config/secrets'
 import { DeepgramStreamingProvider } from './stt/deepgram'
 import { SpeakerIdentifier } from './speaker-id'
+import { writeMeetingFiles } from '../storage/files'
+import { indexMeeting } from '../storage/db'
 import type { StreamingSttProvider, SttResult } from './stt/provider'
 import type { AudioCaptureProvider, AudioChunk } from '../audio/types'
 import type {
@@ -267,7 +269,18 @@ export class PipelineOrchestrator {
         `${duration.toFixed(1)}s duration, ${metadata.speakers.length} speakers`
     )
 
-    // Log the assembled transcript for debugging (Milestone 3 will write to disk)
+    // Write files to disk and index in SQLite
+    try {
+      const meetingDir = writeMeetingFiles(metadata, transcript)
+      const transcriptText = this.segments.map((s) => `${s.speaker}: ${s.text}`).join('\n')
+      indexMeeting(metadata, meetingDir, transcriptText)
+      log.info(`[Pipeline] Meeting saved to ${meetingDir}`)
+    } catch (err) {
+      log.error('[Pipeline] Failed to save meeting files:', err)
+      // Still return the data even if persistence fails
+    }
+
+    // Log the assembled transcript for review
     log.info('[Pipeline] --- Transcript ---')
     for (const seg of this.segments) {
       log.info(`[Pipeline]   [${seg.start.toFixed(1)}s] ${seg.speaker}: ${seg.text}`)

@@ -9,6 +9,14 @@ import { ipcMain } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig } from './config/settings'
 import { getDeepgramApiKey, getAnthropicApiKey } from './config/secrets'
+import {
+  listMeetings,
+  getMeeting,
+  getTodayMeetings,
+  searchMeetings,
+  getMeetingDir
+} from './storage/db'
+import { readMeetingMetadata, readTranscript, readSummary, readActions } from './storage/files'
 import type { AudioCaptureProvider } from './audio/types'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
@@ -66,6 +74,43 @@ export function setupIpcHandlers(
     const { setAnthropicApiKey } = require('./config/secrets')
     setAnthropicApiKey(key)
     return true
+  })
+
+  // Meetings
+  ipcMain.handle('meetings:list', (_event, limit?: number, offset?: number) => {
+    return listMeetings(limit, offset)
+  })
+
+  ipcMain.handle('meetings:get', (_event, id: string) => {
+    const dir = getMeetingDir(id)
+    if (!dir) return null
+    return readMeetingMetadata(dir)
+  })
+
+  ipcMain.handle('meetings:today', () => {
+    return getTodayMeetings()
+  })
+
+  ipcMain.handle('meetings:search', (_event, query: string) => {
+    return searchMeetings(query)
+  })
+
+  ipcMain.handle('meetings:transcript', (_event, id: string) => {
+    const dir = getMeetingDir(id)
+    if (!dir) return null
+    return readTranscript(dir)
+  })
+
+  ipcMain.handle('meetings:summary', (_event, id: string) => {
+    const dir = getMeetingDir(id)
+    if (!dir) return null
+    return readSummary(dir)
+  })
+
+  ipcMain.handle('meetings:actions', (_event, id: string) => {
+    const dir = getMeetingDir(id)
+    if (!dir) return null
+    return readActions(dir)
   })
 
   log.info('[IPC] Handlers registered')

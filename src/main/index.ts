@@ -20,6 +20,8 @@ import { createAudioCaptureProvider } from './audio/capture'
 import { setupIpcHandlers } from './ipc'
 import { setupTray } from './tray'
 import { PipelineOrchestrator } from './pipeline/orchestrator'
+import { initDatabase, closeDatabase } from './storage/db'
+import { startApiServer, stopApiServer } from './api/server'
 import type { AudioCaptureProvider } from './audio/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -72,6 +74,20 @@ app.whenReady().then(async () => {
   ensureConfigDir()
   const config = loadConfig()
   log.info('[App] Config loaded')
+
+  // Initialize SQLite database
+  try {
+    initDatabase()
+  } catch (err) {
+    log.error('[App] Failed to initialize database:', err)
+  }
+
+  // Start local REST API server
+  try {
+    startApiServer()
+  } catch (err) {
+    log.error('[App] Failed to start API server:', err)
+  }
 
   // Set app user model id for Windows (future-proofing)
   electronApp.setAppUserModelId('com.quietclaw.app')
@@ -161,6 +177,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
+  await stopApiServer()
+  closeDatabase()
+
   if (orchestrator?.getState() === 'recording') {
     log.info('[App] Stopping recording before quit')
     try {
