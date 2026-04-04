@@ -21,7 +21,9 @@
     "build:native": "cd native && node-gyp rebuild",
     "preview": "electron-vite preview",
     "lint": "eslint . --ext .ts,.tsx",
+    "pretest": "pnpm rebuild better-sqlite3 2>/dev/null || true",
     "test": "vitest run",
+    "posttest": "electron-builder install-app-deps 2>/dev/null || true",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "postinstall": "electron-builder install-app-deps"

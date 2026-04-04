@@ -25,9 +25,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Rebuild better-sqlite3 for system Node
-        run: pnpm rebuild better-sqlite3
-
       - name: Run tests
         run: pnpm test
 
