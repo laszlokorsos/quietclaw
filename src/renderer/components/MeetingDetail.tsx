@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useToast } from '../contexts/ToastContext'
+import SpeakerMapping from './SpeakerMapping'
 
 const api = (window as any).quietclaw
 
@@ -143,6 +144,14 @@ export default function MeetingDetail({
     navigator.clipboard.writeText(text).then(() => addToast('Transcript copied'))
   }
 
+  async function handleRemapSpeakers(mapping: Record<string, string>) {
+    if (!api) return
+    const result = await api.meetings.remapSpeakers(meetingId, mapping)
+    setMeta(result.metadata)
+    setTranscript(result.transcript)
+    addToast('Speakers identified')
+  }
+
   function formatTimestamp(seconds: number) {
     const m = Math.floor(seconds / 60)
     const s = Math.floor(seconds % 60)
@@ -255,6 +264,14 @@ export default function MeetingDetail({
       {/* Tab content */}
       {tab === 'transcript' && (
         <div>
+          {meta && transcript && (
+            <SpeakerMapping
+              speakers={meta.speakers}
+              segments={transcript.segments}
+              attendees={meta.calendarEvent?.attendees ?? []}
+              onSave={handleRemapSpeakers}
+            />
+          )}
           <div className="flex justify-end mb-3">
             <button
               onClick={copyFullTranscript}

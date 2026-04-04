@@ -218,6 +218,55 @@ export function deleteMeetingFiles(meetingDir: string): void {
   }
 }
 
+/**
+ * Remap anonymous speaker names in a meeting's transcript and metadata.
+ * Rewrites all files atomically and returns the updated data.
+ */
+export function remapSpeakers(
+  meetingDir: string,
+  mapping: Record<string, string>
+): { metadata: MeetingMetadata; transcript: Transcript } {
+  const metadata = readMeetingMetadata(meetingDir)
+  const transcript = readTranscript(meetingDir)
+  if (!metadata || !transcript) throw new Error('Meeting files not found')
+
+  // Update transcript segments
+  for (const seg of transcript.segments) {
+    if (mapping[seg.speaker]) {
+      seg.speaker = mapping[seg.speaker]
+    }
+  }
+
+  // Update metadata speakers, attaching calendar email if the new name matches an attendee
+  const attendeesByName = new Map(
+    (metadata.calendarEvent?.attendees ?? []).map((a) => [a.name, a.email])
+  )
+  for (const speaker of metadata.speakers) {
+    if (mapping[speaker.name]) {
+      speaker.name = mapping[speaker.name]
+      const email = attendeesByName.get(speaker.name)
+      if (email) speaker.email = email
+    }
+  }
+
+  // Rewrite metadata.json, transcript.json, transcript.md, and daily index
+  writeMeetingFiles(metadata, transcript)
+
+  // Regenerate summary.md if it exists (frontmatter uses metadata.speakers)
+  const summary = readSummary(meetingDir)
+  if (summary) {
+    const config = loadConfig()
+    if (config.general.markdown_output) {
+      const summaryMdPath = path.join(meetingDir, 'summary.md')
+      atomicWrite(summaryMdPath, renderSummaryMarkdown(metadata, summary))
+      log.info(`[Storage] Regenerated ${summaryMdPath} after speaker remap`)
+    }
+  }
+
+  log.info(`[Storage] Remapped speakers in ${meetingDir}: ${JSON.stringify(mapping)}`)
+  return { metadata, transcript }
+}
+
 // ---------------------------------------------------------------------------
 // Markdown rendering
 // ---------------------------------------------------------------------------

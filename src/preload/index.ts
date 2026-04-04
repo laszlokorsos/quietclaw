@@ -112,7 +112,9 @@ const api: QuietClawAPI = {
     summary: (id: string) => ipcRenderer.invoke('meetings:summary', id),
     actions: (id: string) => ipcRenderer.invoke('meetings:actions', id),
     summarize: (id: string) => ipcRenderer.invoke('meetings:summarize', id),
-    delete: (id: string) => ipcRenderer.invoke('meetings:delete', id)
+    delete: (id: string) => ipcRenderer.invoke('meetings:delete', id),
+    remapSpeakers: (id: string, mapping: Record<string, string>) =>
+      ipcRenderer.invoke('meetings:remapSpeakers', id, mapping)
   },
   recovery: {
     getStatus: () => ipcRenderer.invoke('recovery:getStatus'),
