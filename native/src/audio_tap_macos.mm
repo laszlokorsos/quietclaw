@@ -466,23 +466,29 @@ static bool IsNativeMeetingApp(NSString* bundleId) {
 }
 
 // Window title patterns that indicate an ACTIVE meeting in a browser.
-// Must be specific enough to not match the homepage/lobby of these apps.
+// Must distinguish between lobby/post-meeting and actually being in the call.
+//
+// Chrome adds 🔊 to the tab title when the tab has active audio output.
+// This is the key signal: lobby has no audio, in-meeting has audio,
+// post-meeting "thank you" screen has no audio.
 static bool IsMeetingWindowTitle(NSString* title) {
     if (!title || title.length == 0) return false;
 
-    // Google Meet active call: "Meet - xxx-yyyy-zzz" (the code is always present in active calls)
-    // The homepage just shows "Google Meet" — do NOT match that alone.
-    if ([title hasPrefix:@"Meet - "] || [title hasSuffix:@" - Google Meet"]) return true;
+    // The 🔊 (U+1F50A) emoji indicates Chrome tab has active audio.
+    // This naturally filters out pre-meeting lobby and post-meeting screens.
+    bool hasAudioIndicator = [title containsString:@"\U0001F50A"];
+
+    // Google Meet: "Meet - Meeting Name 🔊" (in-call with active audio)
+    if (([title hasPrefix:@"Meet - "] || [title hasSuffix:@" - Google Meet"]) && hasAudioIndicator) return true;
 
     // Zoom web client in active meeting
-    if ([title containsString:@"Zoom Meeting"]) return true;
+    if ([title containsString:@"Zoom Meeting"] && hasAudioIndicator) return true;
 
-    // Microsoft Teams active call (not just the Teams homepage)
-    // Active calls show "Meeting with ..." or the meeting name
-    if ([title containsString:@"Microsoft Teams"] && [title containsString:@"|"]) return true;
+    // Microsoft Teams web
+    if ([title containsString:@"Microsoft Teams"] && hasAudioIndicator) return true;
 
-    // Webex active meeting
-    if ([title containsString:@"Webex"] && [title containsString:@"Meeting"]) return true;
+    // Webex
+    if ([title containsString:@"Webex"] && hasAudioIndicator) return true;
 
     return false;
 }
