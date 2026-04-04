@@ -1,0 +1,160 @@
+/**
+ * Speaker identification — maps raw STT results to named speakers.
+ *
+ * Phase 1 (MVP):
+ *   - Channel 0 (mic) = you, labeled with your name
+ *   - Channel 1 (system) = other participants, labeled Speaker A/B/C
+ *   - For 2-person calls: the one other speaker is auto-named from calendar
+ *
+ * Phase 2: Manual speaker mapping UI (post-meeting name assignment)
+ * Phase 3: Voice fingerprint database (automatic learning)
+ */
+
+import log from 'electron-log/main'
+import type { SttResult } from './stt/provider'
+import type {
+  TranscriptSegment,
+  SpeakerInfo,
+  CalendarAttendee
+} from '../storage/models'
+
+/** Speaker label letters for system audio participants */
+const SPEAKER_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+export interface SpeakerIdConfig {
+  /** Your name (the person running QuietClaw) */
+  userName: string
+  /** Calendar attendees for this meeting (if available) */
+  attendees?: CalendarAttendee[]
+}
+
+export class SpeakerIdentifier {
+  private config: SpeakerIdConfig
+  /** Maps raw speaker IDs on system channel to display names */
+  private systemSpeakerMap = new Map<number, string>()
+  /** Counter for assigning letter labels */
+  private nextSpeakerIndex = 0
+
+  constructor(config: SpeakerIdConfig) {
+    this.config = config
+  }
+
+  /**
+   * Convert an STT result into a transcript segment with speaker attribution.
+   */
+  identify(result: SttResult): TranscriptSegment {
+    const isMicrophone = result.channelIndex === 0
+    const source = isMicrophone ? 'microphone' as const : 'system' as const
+
+    let speaker: string
+    let speakerId: number
+
+    if (isMicrophone) {
+      speaker = this.config.userName
+      speakerId = 0
+    } else {
+      speakerId = result.speakerId ?? 0
+      speaker = this.getSystemSpeakerName(speakerId)
+    }
+
+    return {
+      speaker,
+      speakerId,
+      source,
+      start: result.start,
+      end: result.start + result.duration,
+      text: result.transcript,
+      words: result.words,
+      confidence: result.confidence
+    }
+  }
+
+  /**
+   * Get all identified speakers after processing is complete.
+   */
+  getSpeakers(): SpeakerInfo[] {
+    const speakers: SpeakerInfo[] = [
+      {
+        name: this.config.userName,
+        speakerId: 0,
+        source: 'microphone'
+      }
+    ]
+
+    for (const [id, name] of this.systemSpeakerMap) {
+      const attendee = this.findAttendeeForSpeaker(name)
+      speakers.push({
+        name,
+        speakerId: id,
+        source: 'system',
+        email: attendee?.email
+      })
+    }
+
+    return speakers
+  }
+
+  /**
+   * After all segments are collected, try to refine speaker names
+   * using calendar attendee info.
+   */
+  refineWithCalendar(segments: TranscriptSegment[]): TranscriptSegment[] {
+    if (!this.config.attendees?.length) return segments
+
+    // Filter to non-self attendees
+    const otherAttendees = this.config.attendees.filter((a) => !a.self)
+    if (otherAttendees.length === 0) return segments
+
+    // Count unique system speakers
+    const uniqueSystemSpeakers = new Set(
+      segments.filter((s) => s.source === 'system').map((s) => s.speakerId)
+    )
+
+    // For 2-person calls: if there's exactly one other speaker and one other
+    // attendee, we can auto-name them
+    if (uniqueSystemSpeakers.size === 1 && otherAttendees.length === 1) {
+      const otherName = otherAttendees[0].name
+      const otherEmail = otherAttendees[0].email
+      const speakerId = [...uniqueSystemSpeakers][0]
+
+      log.info(
+        `[SpeakerID] 2-person call: auto-naming system speaker ${speakerId} as "${otherName}"`
+      )
+
+      // Update the speaker map
+      this.systemSpeakerMap.set(speakerId, otherName)
+
+      // Update all system segments
+      return segments.map((seg) => {
+        if (seg.source === 'system' && seg.speakerId === speakerId) {
+          return { ...seg, speaker: otherName }
+        }
+        return seg
+      })
+    }
+
+    // For 3+ person calls: speakers stay as Speaker A/B/C for now (Phase 2 adds manual mapping)
+    log.info(
+      `[SpeakerID] ${uniqueSystemSpeakers.size} system speakers, ` +
+        `${otherAttendees.length} attendees — using letter labels (manual mapping in Phase 2)`
+    )
+
+    return segments
+  }
+
+  private getSystemSpeakerName(speakerId: number): string {
+    let name = this.systemSpeakerMap.get(speakerId)
+    if (!name) {
+      const label = SPEAKER_LABELS[this.nextSpeakerIndex % SPEAKER_LABELS.length]
+      name = `Speaker ${label}`
+      this.systemSpeakerMap.set(speakerId, name)
+      this.nextSpeakerIndex++
+      log.debug(`[SpeakerID] Mapped system speaker ${speakerId} → "${name}"`)
+    }
+    return name
+  }
+
+  private findAttendeeForSpeaker(speakerName: string): CalendarAttendee | undefined {
+    return this.config.attendees?.find((a) => a.name === speakerName)
+  }
+}

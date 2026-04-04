@@ -19,10 +19,12 @@ import { ensureConfigDir, loadConfig } from './config/settings'
 import { createAudioCaptureProvider } from './audio/capture'
 import { setupIpcHandlers } from './ipc'
 import { setupTray } from './tray'
+import { PipelineOrchestrator } from './pipeline/orchestrator'
 import type { AudioCaptureProvider } from './audio/types'
 
 let mainWindow: BrowserWindow | null = null
 let audioCapture: AudioCaptureProvider | null = null
+let orchestrator: PipelineOrchestrator | null = null
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -132,11 +134,18 @@ app.whenReady().then(async () => {
   // Create the main window (hidden)
   mainWindow = createWindow()
 
-  // Set up system tray
-  setupTray(mainWindow, audioCapture)
+  // Initialize pipeline orchestrator
+  if (audioCapture) {
+    orchestrator = new PipelineOrchestrator(audioCapture)
+  }
+
+  // Set up system tray (pass orchestrator for recording control)
+  if (orchestrator) {
+    setupTray(mainWindow, orchestrator)
+  }
 
   // Set up IPC handlers for renderer communication
-  setupIpcHandlers(audioCapture)
+  setupIpcHandlers(audioCapture, orchestrator)
 
   // Check for orphaned recordings from a previous crash
   checkCrashRecovery()
@@ -152,7 +161,17 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
-  if (audioCapture?.isCapturing()) {
+  if (orchestrator?.getState() === 'recording') {
+    log.info('[App] Stopping recording before quit')
+    try {
+      await orchestrator.stopRecording()
+    } catch {
+      // If orchestrator stop fails, fall back to raw capture stop
+      if (audioCapture?.isCapturing()) {
+        await audioCapture.stopCapture()
+      }
+    }
+  } else if (audioCapture?.isCapturing()) {
     log.info('[App] Stopping audio capture before quit')
     await audioCapture.stopCapture()
   }

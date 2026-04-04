@@ -3,19 +3,21 @@
  *
  * QuietClaw is a tray-first app — the tray icon is the primary interface.
  * Shows recording status and provides Start/Stop controls.
+ * Delegates recording logic to the PipelineOrchestrator.
  */
 
 import { Tray, Menu, BrowserWindow, nativeImage, app } from 'electron'
 import path from 'node:path'
 import log from 'electron-log/main'
-import type { AudioCaptureProvider } from './audio/types'
+import { hasSecret } from './config/secrets'
+import { showApiKeyDialog } from './dialogs'
+import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
 let tray: Tray | null = null
-let isRecording = false
 
 export function setupTray(
   mainWindow: BrowserWindow | null,
-  audioCapture: AudioCaptureProvider | null
+  orchestrator: PipelineOrchestrator
 ): void {
   // Create tray icon (16x16 template image for macOS menu bar)
   const iconPath = path.join(__dirname, '../../resources/tray-icon.png')
@@ -36,55 +38,46 @@ export function setupTray(
   tray.setToolTip('QuietClaw — Idle')
 
   const updateMenu = (): void => {
+    const state = orchestrator.getState()
+    const isRecording = state === 'recording'
+    const isProcessing = state === 'processing'
+
+    let statusLabel: string
+    if (isRecording) {
+      statusLabel = '⏺ Recording...'
+    } else if (isProcessing) {
+      statusLabel = '⏳ Processing...'
+    } else {
+      statusLabel = 'QuietClaw — Idle'
+    }
+
+    const hasDeepgramKey = hasSecret('quietclaw:deepgram:api_key')
+
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: isRecording ? '⏺ Recording...' : 'QuietClaw — Idle',
+        label: statusLabel,
         enabled: false
       },
       { type: 'separator' },
       {
         label: isRecording ? 'Stop Recording' : 'Start Recording',
+        enabled: !isProcessing && hasDeepgramKey,
         click: async () => {
-          if (!audioCapture) {
-            log.error('[Tray] No audio capture provider available')
-            return
-          }
-
           if (isRecording) {
-            await audioCapture.stopCapture()
-            isRecording = false
-            tray?.setToolTip('QuietClaw — Idle')
-            log.info('[Tray] Recording stopped')
-            mainWindow?.webContents.send('recording-status', { recording: false })
+            try {
+              const result = await orchestrator.stopRecording()
+              log.info(
+                `[Tray] Recording stopped — ${result.transcript.segments.length} segments, ` +
+                  `${result.metadata.duration.toFixed(1)}s`
+              )
+              mainWindow?.webContents.send('recording-status', { recording: false })
+            } catch (err) {
+              log.error('[Tray] Failed to stop recording:', err)
+            }
           } else {
             try {
-              const hasPermission = await audioCapture.hasPermission()
-              if (!hasPermission) {
-                log.info('[Tray] Requesting permissions...')
-                const granted = await audioCapture.requestPermissions()
-                if (!granted) {
-                  log.warn('[Tray] Screen Recording permission not granted')
-                  return
-                }
-              }
-
-              // Set up audio data callback (Milestone 2 will pipe this to Deepgram)
-              audioCapture.onAudioData((chunk) => {
-                // For now, just log that we're receiving audio
-                // Milestone 2 will stream this to the STT provider
-                log.debug(
-                  `[Audio] ${chunk.source} chunk: ${chunk.buffer.length} samples @ ${chunk.timestamp.toFixed(2)}s`
-                )
-              })
-
-              await audioCapture.startCapture({
-                sampleRate: 16000,
-                captureSystemAudio: true,
-                captureMicrophone: true
-              })
-
-              isRecording = true
-              tray?.setToolTip('QuietClaw — Recording')
+              // TODO: Get user name from config/calendar (Milestone 4)
+              await orchestrator.startRecording('Me')
               log.info('[Tray] Recording started')
               mainWindow?.webContents.send('recording-status', { recording: true })
             } catch (err) {
@@ -93,6 +86,29 @@ export function setupTray(
           }
           updateMenu()
         }
+      },
+      ...(!hasDeepgramKey
+        ? [
+            {
+              label: '⚠ Set API key to start recording',
+              enabled: false
+            }
+          ]
+        : []),
+      { type: 'separator' },
+      {
+        label: 'Settings',
+        submenu: [
+          {
+            label: hasDeepgramKey
+              ? 'Deepgram API Key (configured)'
+              : 'Deepgram API Key (not set)',
+            click: async () => {
+              await showApiKeyDialog()
+              updateMenu()
+            }
+          }
+        ]
       },
       { type: 'separator' },
       {
@@ -112,6 +128,39 @@ export function setupTray(
 
     tray?.setContextMenu(contextMenu)
   }
+
+  // Update menu when orchestrator state changes
+  orchestrator.on({
+    onStateChange: (state) => {
+      const tooltips: Record<string, string> = {
+        idle: 'QuietClaw — Idle',
+        recording: 'QuietClaw — Recording',
+        processing: 'QuietClaw — Processing',
+        complete: 'QuietClaw — Idle',
+        error: 'QuietClaw — Error'
+      }
+      tray?.setToolTip(tooltips[state] ?? 'QuietClaw')
+      updateMenu()
+    },
+    onSegment: (segment) => {
+      log.info(
+        `[Pipeline] ${segment.speaker}: "${segment.text.slice(0, 80)}${segment.text.length > 80 ? '...' : ''}"`
+      )
+    },
+    onComplete: (meeting) => {
+      log.info(
+        `[Pipeline] Meeting complete: "${meeting.metadata.title}" — ` +
+          `${meeting.transcript.segments.length} segments`
+      )
+      mainWindow?.webContents.send('meeting-processed', {
+        id: meeting.metadata.id,
+        title: meeting.metadata.title
+      })
+    },
+    onError: (error) => {
+      log.error('[Pipeline] Error:', error)
+    }
+  })
 
   updateMenu()
 

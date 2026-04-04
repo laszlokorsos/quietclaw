@@ -8,10 +8,14 @@
 import { ipcMain } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig } from './config/settings'
-import { hasSecret, getDeepgramApiKey, getAnthropicApiKey } from './config/secrets'
+import { getDeepgramApiKey, getAnthropicApiKey } from './config/secrets'
 import type { AudioCaptureProvider } from './audio/types'
+import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
-export function setupIpcHandlers(audioCapture: AudioCaptureProvider | null): void {
+export function setupIpcHandlers(
+  audioCapture: AudioCaptureProvider | null,
+  orchestrator: PipelineOrchestrator | null
+): void {
   // Config
   ipcMain.handle('config:get', () => {
     return loadConfig()
@@ -32,6 +36,15 @@ export function setupIpcHandlers(audioCapture: AudioCaptureProvider | null): voi
 
   ipcMain.handle('audio:isCapturing', () => {
     return audioCapture?.isCapturing() ?? false
+  })
+
+  // Pipeline / session
+  ipcMain.handle('pipeline:getState', () => {
+    return orchestrator?.getState() ?? 'idle'
+  })
+
+  ipcMain.handle('pipeline:getSessionId', () => {
+    return orchestrator?.getSessionId() ?? null
   })
 
   // Secrets (check existence only — never send secret values to renderer)

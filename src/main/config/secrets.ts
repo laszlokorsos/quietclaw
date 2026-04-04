@@ -97,11 +97,16 @@ export function listSecretKeys(): string[] {
 // ---------------------------------------------------------------------------
 
 export function getDeepgramApiKey(): string | null {
-  // Dev mode: check env var first
+  // Prefer safeStorage (user-configured) over env var
+  const stored = getSecret('quietclaw:deepgram:api_key')
+  if (stored) {
+    return stored
+  }
+  // Fall back to env var for dev/testing
   if (process.env.DEEPGRAM_API_KEY) {
     return process.env.DEEPGRAM_API_KEY
   }
-  return getSecret('quietclaw:deepgram:api_key')
+  return null
 }
 
 export function setDeepgramApiKey(key: string): void {
@@ -109,10 +114,14 @@ export function setDeepgramApiKey(key: string): void {
 }
 
 export function getAnthropicApiKey(): string | null {
+  const stored = getSecret('quietclaw:anthropic:api_key')
+  if (stored) {
+    return stored
+  }
   if (process.env.ANTHROPIC_API_KEY) {
     return process.env.ANTHROPIC_API_KEY
   }
-  return getSecret('quietclaw:anthropic:api_key')
+  return null
 }
 
 export function setAnthropicApiKey(key: string): void {

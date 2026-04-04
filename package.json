@@ -1,6 +1,10 @@
 {
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "electron", "esbuild"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "electron",
+      "esbuild"
+    ]
   },
   "name": "quietclaw",
   "version": "0.1.0",
@@ -27,7 +31,8 @@
     "electron-log": "^5.2.4",
     "express": "^4.21.0",
     "toml": "^3.0.0",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -41,6 +46,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
