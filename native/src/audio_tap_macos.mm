@@ -534,6 +534,7 @@ void AudioTapMacOS::StartMeetingDetection(MeetingCallback callback) {
     };
 
     AudioTapMacOS* weakSelf = this;
+    __block BOOL pendingCheck = NO;
 
     AudioObjectPropertyListenerBlock listenerBlock =
         ^(UInt32 inNumberAddresses, const AudioObjectPropertyAddress* inAddresses) {
@@ -553,9 +554,14 @@ void AudioTapMacOS::StartMeetingDetection(MeetingCallback callback) {
             weakSelf->LogToJS(logBuf);
 
             if (isRunning) {
-                // Mic just activated — give apps a moment to fully set up, then check
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(800 * NSEC_PER_MSEC)),
+                // Deduplicate: only schedule one check at a time
+                if (pendingCheck) return;
+                pendingCheck = YES;
+
+                // Short delay for audio routing to settle, then check
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(200 * NSEC_PER_MSEC)),
                     dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                        pendingCheck = NO;
                         if (weakSelf->meetingDetectionActive_) {
                             weakSelf->CheckForActiveMeeting();
                         }
