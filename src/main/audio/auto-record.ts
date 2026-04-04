@@ -1,18 +1,14 @@
 /**
  * Automatic recording via meeting app detection.
  *
- * Uses Core Audio property listeners (event-driven, no polling) to detect
- * when a known meeting app (Zoom, Google Meet, Teams) has both microphone
- * input AND audio output active — meaning the user is on a call.
+ * The native layer polls every 5 seconds for meeting windows (Google Meet,
+ * Zoom, Teams) via SCShareableContent + NSRunningApplication. It also
+ * listens for mic state changes via Core Audio property listeners for
+ * faster detection.
  *
- * This filters out non-call mic usage (Wispr Flow, Siri, dictation) since
- * those only have input, not bidirectional audio.
- *
- * Once a meeting is detected:
- *   1. Recording starts immediately
- *   2. Calendar is checked to correlate with a scheduled event (for title + attendees)
- *   3. When the meeting app stops bidirectional audio, recording stops
- *   4. Desktop notification on start and stop
+ * Simple logic:
+ *   - meeting:detected → start recording (correlate with calendar)
+ *   - meeting:ended → stop recording
  */
 
 import { Notification } from 'electron'
@@ -27,10 +23,6 @@ let enabled = false
 let audioCapture: MacOSAudioCapture | null = null
 let activeOrchestrator: PipelineOrchestrator | null = null
 let activeMeetingBundleId: string | null = null
-
-/** Debounce: ignore rapid meeting:ended events (brief mutes, etc.) */
-let endDebounceTimer: ReturnType<typeof setTimeout> | null = null
-const END_DEBOUNCE_MS = 10_000 // 10 seconds of no meeting signal before stopping
 
 /**
  * Start the auto-record meeting detector.
@@ -61,10 +53,6 @@ export function startAutoRecord(
  */
 export function stopAutoRecord(): void {
   enabled = false
-  if (endDebounceTimer) {
-    clearTimeout(endDebounceTimer)
-    endDebounceTimer = null
-  }
   if (audioCapture?.isMeetingDetectionActive()) {
     audioCapture.stopMeetingDetection()
   }
@@ -73,7 +61,6 @@ export function stopAutoRecord(): void {
   activeMeetingBundleId = null
   log.info('[AutoRecord] Meeting detection stopped')
 }
-
 
 /**
  * Handle a meeting detection event from the native layer.
@@ -88,16 +75,10 @@ function handleMeetingEvent(event: MeetingDetectionEvent): void {
   }
 
   if (event.event === 'meeting:detected') {
-    // Clear any pending end-debounce (the meeting is still active)
-    if (endDebounceTimer) {
-      clearTimeout(endDebounceTimer)
-      endDebounceTimer = null
-    }
-
     // If already recording this meeting, nothing to do
-    if (activeMeetingBundleId === event.bundleId) return
+    if (activeMeetingBundleId) return
 
-    // If already recording (manually or different meeting), don't interfere
+    // If already recording (manually), don't interfere
     if (activeOrchestrator.getState() !== 'idle') return
 
     log.info(
@@ -108,20 +89,15 @@ function handleMeetingEvent(event: MeetingDetectionEvent): void {
     activeMeetingBundleId = event.bundleId
     autoStart(event)
   } else if (event.event === 'meeting:ended') {
-    // Only act if we're the ones who started this recording
+    // Only act if we started this recording
     if (!activeMeetingBundleId) return
-    if (activeOrchestrator.getState() !== 'recording') return
-
-    // Debounce: wait before stopping (handles brief mutes, reconnects)
-    if (!endDebounceTimer) {
-      log.info('[AutoRecord] Meeting signal ended — waiting 10s before stopping')
-      endDebounceTimer = setTimeout(() => {
-        endDebounceTimer = null
-        if (activeOrchestrator?.getState() === 'recording' && activeMeetingBundleId) {
-          autoStop()
-        }
-      }, END_DEBOUNCE_MS)
+    if (activeOrchestrator.getState() !== 'recording') {
+      activeMeetingBundleId = null
+      return
     }
+
+    log.info('[AutoRecord] Meeting ended — stopping recording')
+    autoStop()
   }
 }
 
@@ -141,7 +117,6 @@ async function autoStart(event: MeetingDetectionEvent): Promise<void> {
   const calendarMatch = matchRecordingToEvent()
   const eventTitle = calendarMatch?.event.title ?? event.windowTitle ?? 'Detected call'
 
-  // Show desktop notification
   const notification = new Notification({
     title: 'QuietClaw — Recording Started',
     body: `Auto-recording: ${eventTitle}`,

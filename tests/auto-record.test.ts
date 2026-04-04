@@ -111,7 +111,7 @@ describe('Auto-Record (Meeting Detection)', () => {
     expect(orch.startRecording).not.toHaveBeenCalled()
   })
 
-  it('does not immediately stop on meeting:ended (debounce)', async () => {
+  it('stops recording when meeting:ended fires', async () => {
     const capture = makeMockCapture()
     const orch = makeOrchestrator()
     startAutoRecord(capture as any, orch as any)
@@ -123,11 +123,11 @@ describe('Auto-Record (Meeting Detection)', () => {
     // Now orchestrator is "recording"
     orch.getState.mockReturnValue('recording')
 
-    // End signal
+    // End signal — should stop immediately
     capture._simulateEvent('meeting:ended', '', '')
+    await new Promise((r) => setTimeout(r, 50))
 
-    // Should NOT have stopped yet (10s debounce)
-    expect(orch.stopRecording).not.toHaveBeenCalled()
+    expect(orch.stopRecording).toHaveBeenCalled()
   })
 
   it('ignores duplicate meeting:detected for same app', async () => {
