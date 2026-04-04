@@ -15,7 +15,7 @@ import type { AudioCaptureProvider, AudioChunk, AudioDataCallback, CaptureOption
 
 // The native addon is loaded at runtime from the build output
 export interface MeetingDetectionEvent {
-  event: 'meeting:detected' | 'meeting:ended'
+  event: 'meeting:detected' | 'meeting:ended' | 'log'
   bundleId: string
   windowTitle: string
 }

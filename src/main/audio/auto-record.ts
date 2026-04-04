@@ -102,6 +102,12 @@ export function setAutoRecordEnabled(
 function handleMeetingEvent(event: MeetingDetectionEvent): void {
   if (!enabled || !activeOrchestrator) return
 
+  // Forward native-layer diagnostic logs
+  if (event.event === 'log') {
+    log.info(`[AutoRecord] [native] ${event.windowTitle}`)
+    return
+  }
+
   if (event.event === 'meeting:detected') {
     // Clear any pending end-debounce (the meeting is still active)
     if (endDebounceTimer) {
