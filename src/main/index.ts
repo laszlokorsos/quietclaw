@@ -10,7 +10,7 @@
  *   - Main window (hidden by default — tray-first app)
  */
 
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, dialog } from 'electron'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import log from 'electron-log/main'
@@ -62,6 +62,11 @@ app.whenReady().then(async () => {
   initLogger()
   log.info('[App] QuietClaw starting...')
 
+  // Hide dock icon — QuietClaw is a tray-first (menu bar) app
+  if (process.platform === 'darwin') {
+    app.dock.hide()
+  }
+
   ensureConfigDir()
   const config = loadConfig()
   log.info('[App] Config loaded')
@@ -83,6 +88,42 @@ app.whenReady().then(async () => {
     if (available) {
       const hasPermission = await audioCapture.hasPermission()
       log.info(`[App] Screen Recording permission: ${hasPermission}`)
+
+      if (!hasPermission) {
+        log.info('[App] Screen Recording permission not granted — prompting user')
+
+        // Show dock icon temporarily so the dialog is visible
+        if (process.platform === 'darwin') {
+          app.dock.show()
+        }
+
+        // On macOS Sequoia (15+), there's no system permission dialog — the user
+        // must manually enable the app in System Settings. Show our own dialog.
+        const { response } = await dialog.showMessageBox({
+          type: 'info',
+          title: 'Screen Recording Permission Required',
+          message: 'QuietClaw needs Screen & System Audio Recording permission to capture meeting audio.',
+          detail:
+            'Click "Open System Settings" to go to Privacy & Security settings.\n\n' +
+            'Look for "Electron" in the list and toggle it ON.\n\n' +
+            'After enabling, you\'ll need to restart QuietClaw.',
+          buttons: ['Open System Settings', 'Later'],
+          defaultId: 0
+        })
+
+        if (response === 0) {
+          // Register the app in the Screen Recording list, then open Settings
+          await audioCapture.requestPermissions()
+          shell.openExternal(
+            'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+          )
+        }
+
+        // Hide dock icon again
+        if (process.platform === 'darwin') {
+          app.dock.hide()
+        }
+      }
     }
   } catch (err) {
     log.error('[App] Failed to initialize audio capture:', err)

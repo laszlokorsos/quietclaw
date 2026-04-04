@@ -152,7 +152,9 @@ bool AudioTapMacOS::IsAvailable() {
 
 void AudioTapMacOS::RequestPermissions(std::function<void(bool)> callback) {
     if (@available(macOS 13.0, *)) {
-        // Requesting shareable content triggers the Screen Recording permission dialog
+        // Try SCShareableContent — this registers the app in the Screen Recording
+        // list without showing its own dialog. The Electron main process handles
+        // the user-facing dialog and opens System Settings.
         [SCShareableContent getShareableContentExcludingDesktopWindows:NO
             onScreenWindowsOnly:NO
             completionHandler:^(SCShareableContent* content, NSError* error) {

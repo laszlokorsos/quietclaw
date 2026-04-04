@@ -17,16 +17,16 @@ export function setupTray(
   mainWindow: BrowserWindow | null,
   audioCapture: AudioCaptureProvider | null
 ): void {
-  // Create a simple tray icon (16x16 template image for macOS menu bar)
-  // For now, use a placeholder — real icon comes later
+  // Create tray icon (16x16 template image for macOS menu bar)
   const iconPath = path.join(__dirname, '../../resources/tray-icon.png')
   let trayIcon: Electron.NativeImage
-  try {
-    trayIcon = nativeImage.createFromPath(iconPath)
-    trayIcon = trayIcon.resize({ width: 16, height: 16 })
-  } catch {
-    // Fallback: create a tiny blank icon
-    trayIcon = nativeImage.createEmpty()
+  const loaded = nativeImage.createFromPath(iconPath)
+  if (loaded.isEmpty()) {
+    log.warn(`[Tray] Icon not found at ${iconPath}, using fallback`)
+    // 16x16 black circle as fallback
+    trayIcon = nativeImage.createFromBuffer(Buffer.alloc(16 * 16 * 4, 0))
+  } else {
+    trayIcon = loaded.resize({ width: 16, height: 16 })
   }
 
   // On macOS, template images adapt to dark/light mode

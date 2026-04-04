@@ -10,7 +10,8 @@
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "electron-vite dev; stty sane 2>/dev/null; echo",
+    "dev:app": "electron-vite build && open node_modules/electron/dist/Electron.app --args \"$PWD\"",
     "build": "electron-vite build && electron-builder",
     "build:vite": "electron-vite build",
     "build:native": "cd native && node-gyp rebuild",
