@@ -30,8 +30,11 @@ import {
   readMeetingMetadata,
   readTranscript,
   readSummary,
-  readActions
+  readActions,
+  writeSummaryFiles
 } from '../storage/files'
+import { markSummarized } from '../storage/db'
+import { AnthropicSummarizer } from '../pipeline/summarizer/anthropic'
 
 export function createRoutes(): Router {
   const router = Router()
@@ -183,7 +186,7 @@ export function createRoutes(): Router {
   })
 
   // Trigger summarization (placeholder — actual summarization comes in Milestone 5)
-  router.post('/meetings/:id/summarize', (req, res) => {
+  router.post('/meetings/:id/summarize', async (req, res) => {
     try {
       const dir = getMeetingDir(req.params.id)
       if (!dir) {
@@ -195,11 +198,29 @@ export function createRoutes(): Router {
         res.status(404).json({ error: 'Transcript not found' })
         return
       }
-      // Summarization provider will be wired in Milestone 5
-      res.status(501).json({
-        error: 'Summarization not yet implemented',
-        message: 'This endpoint will be functional in Milestone 5'
-      })
+      const metadata = readMeetingMetadata(dir)
+      if (!metadata) {
+        res.status(404).json({ error: 'Meeting metadata not found' })
+        return
+      }
+
+      const summarizer = new AnthropicSummarizer()
+      if (!summarizer.isConfigured()) {
+        res.status(400).json({ error: 'Anthropic API key not configured' })
+        return
+      }
+
+      const speakers = metadata.speakers.map((s) => s.name)
+      const { summary, actions } = await summarizer.summarize(
+        transcript.segments,
+        metadata.title,
+        speakers
+      )
+
+      writeSummaryFiles(metadata, summary, actions)
+      markSummarized(req.params.id)
+
+      res.json({ summary, actions })
     } catch (err) {
       log.error('[API] POST /meetings/:id/summarize error:', err)
       res.status(500).json({ error: 'Failed to trigger summarization' })

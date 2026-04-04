@@ -1,76 +1,65 @@
 import { useState, useEffect } from 'react'
+import MeetingList from './components/MeetingList'
+import MeetingDetail from './components/MeetingDetail'
+import Settings from './components/Settings'
+import StatusBar from './components/StatusBar'
 
-/**
- * Minimal app shell for Milestone 1.
- * Full UI (onboarding, meeting list, settings) comes in Milestone 5.
- */
+type View = 'meetings' | 'settings'
+
+const api = (window as any).quietclaw
+
 export default function App() {
-  const [audioAvailable, setAudioAvailable] = useState<boolean | null>(null)
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null)
+  const [view, setView] = useState<View>('meetings')
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null)
   const [isRecording, setIsRecording] = useState(false)
 
   useEffect(() => {
-    // Check audio capture status on mount
-    const check = async () => {
-      const api = (window as any).quietclaw
-      if (!api) return
-
-      setAudioAvailable(await api.audio.isAvailable())
-      setHasPermission(await api.audio.hasPermission())
-    }
-    check()
-
-    // Listen for recording status changes from the tray
-    const api = (window as any).quietclaw
-    if (api) {
-      const unsub = api.on('recording-status', (status: { recording: boolean }) => {
-        setIsRecording(status.recording)
-      })
-      return unsub
-    }
+    if (!api) return
+    const unsub = api.on('recording-status', (status: { recording: boolean }) => {
+      setIsRecording(status.recording)
+    })
+    return unsub
   }, [])
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-8">
-      <h1 className="text-2xl font-bold mb-6">QuietClaw</h1>
-      <p className="text-gray-400 mb-4">The silent claw that listens.</p>
-
-      <div className="space-y-3 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-gray-500">Audio Capture:</span>
-          {audioAvailable === null ? (
-            <span className="text-gray-600">Checking...</span>
-          ) : audioAvailable ? (
-            <span className="text-green-400">Available</span>
-          ) : (
-            <span className="text-red-400">Not Available</span>
-          )}
+    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+      <header className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-950/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <h1 className="text-base font-semibold tracking-tight">QuietClaw</h1>
+          <StatusBar isRecording={isRecording} />
         </div>
+        <nav className="flex gap-1">
+          <button
+            onClick={() => { setView('meetings'); setSelectedMeetingId(null) }}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+              view === 'meetings' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            Meetings
+          </button>
+          <button
+            onClick={() => setView('settings')}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+              view === 'settings' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            Settings
+          </button>
+        </nav>
+      </header>
 
-        <div className="flex items-center gap-2">
-          <span className="text-gray-500">Screen Recording Permission:</span>
-          {hasPermission === null ? (
-            <span className="text-gray-600">Checking...</span>
-          ) : hasPermission ? (
-            <span className="text-green-400">Granted</span>
-          ) : (
-            <span className="text-yellow-400">Not Granted</span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-gray-500">Status:</span>
-          {isRecording ? (
-            <span className="text-red-400 animate-pulse">Recording</span>
-          ) : (
-            <span className="text-gray-400">Idle</span>
-          )}
-        </div>
-      </div>
-
-      <p className="text-gray-600 text-xs mt-8">
-        Use the menu bar icon to start/stop recording.
-      </p>
+      <main className="flex-1 overflow-auto">
+        {view === 'settings' ? (
+          <Settings />
+        ) : selectedMeetingId ? (
+          <MeetingDetail
+            meetingId={selectedMeetingId}
+            onBack={() => setSelectedMeetingId(null)}
+          />
+        ) : (
+          <MeetingList onSelect={(id) => setSelectedMeetingId(id)} />
+        )}
+      </main>
     </div>
   )
 }

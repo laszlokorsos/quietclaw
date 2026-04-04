@@ -19,6 +19,9 @@ import { writeMeetingFiles } from '../storage/files'
 import { indexMeeting } from '../storage/db'
 import { matchRecordingToEvent } from '../calendar/matcher'
 import { syncNow } from '../calendar/sync'
+import { AnthropicSummarizer } from './summarizer/anthropic'
+import { writeSummaryFiles } from '../storage/files'
+import { markSummarized } from '../storage/db'
 import type { MatchResult } from '../calendar/matcher'
 import type { StreamingSttProvider, SttResult } from './stt/provider'
 import type { AudioCaptureProvider, AudioChunk } from '../audio/types'
@@ -305,6 +308,35 @@ export class PipelineOrchestrator {
     } catch (err) {
       log.error('[Pipeline] Failed to save meeting files:', err)
       // Still return the data even if persistence fails
+    }
+
+    // Auto-summarize if enabled and configured
+    const config2 = loadConfig()
+    if (config2.summarization.enabled) {
+      try {
+        const summarizer = new AnthropicSummarizer()
+        if (summarizer.isConfigured()) {
+          log.info('[Pipeline] Running summarization...')
+          const speakers = metadata.speakers.map((s) => s.name)
+          const { summary, actions } = await summarizer.summarize(
+            this.segments,
+            title,
+            speakers
+          )
+          writeSummaryFiles(metadata, summary, actions)
+          markSummarized(metadata.id)
+          metadata.summarized = true
+          log.info(
+            `[Pipeline] Summarization complete: ${summary.topics.length} topics, ` +
+              `${actions.length} action items`
+          )
+        } else {
+          log.info('[Pipeline] Summarization enabled but Anthropic API key not set — skipping')
+        }
+      } catch (err) {
+        log.error('[Pipeline] Summarization failed:', err)
+        // Non-fatal — meeting is still saved without summary
+      }
     }
 
     // Log the assembled transcript for review

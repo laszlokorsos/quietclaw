@@ -8,7 +8,7 @@
 import { ipcMain } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig } from './config/settings'
-import { getDeepgramApiKey, getAnthropicApiKey } from './config/secrets'
+import { getDeepgramApiKey, getAnthropicApiKey, setDeepgramApiKey, setAnthropicApiKey } from './config/secrets'
 import { listAccounts, addGoogleAccount, removeAccount } from './calendar/accounts'
 import { getCachedEvents, syncNow } from './calendar/sync'
 import {
@@ -67,14 +67,14 @@ export function setupIpcHandlers(
   })
 
   ipcMain.handle('secrets:setDeepgramKey', (_event, key: string) => {
-    const { setDeepgramApiKey } = require('./config/secrets')
     setDeepgramApiKey(key)
+    log.info('[IPC] Deepgram API key saved')
     return true
   })
 
   ipcMain.handle('secrets:setAnthropicKey', (_event, key: string) => {
-    const { setAnthropicApiKey } = require('./config/secrets')
     setAnthropicApiKey(key)
+    log.info('[IPC] Anthropic API key saved')
     return true
   })
 
@@ -102,8 +102,15 @@ export function setupIpcHandlers(
   })
 
   // Meetings
+  // Parse speakers JSON from DB rows before sending to renderer
+  const formatRows = (rows: Array<Record<string, unknown>>) =>
+    rows.map((r) => ({
+      ...r,
+      speakers: typeof r.speakers === 'string' ? JSON.parse(r.speakers as string) : r.speakers
+    }))
+
   ipcMain.handle('meetings:list', (_event, limit?: number, offset?: number) => {
-    return listMeetings(limit, offset)
+    return formatRows(listMeetings(limit, offset))
   })
 
   ipcMain.handle('meetings:get', (_event, id: string) => {
@@ -113,11 +120,11 @@ export function setupIpcHandlers(
   })
 
   ipcMain.handle('meetings:today', () => {
-    return getTodayMeetings()
+    return formatRows(getTodayMeetings())
   })
 
   ipcMain.handle('meetings:search', (_event, query: string) => {
-    return searchMeetings(query)
+    return formatRows(searchMeetings(query))
   })
 
   ipcMain.handle('meetings:transcript', (_event, id: string) => {

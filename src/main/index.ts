@@ -47,6 +47,14 @@ function createWindow(): BrowserWindow {
     // Window opens from tray menu or when user clicks "Open QuietClaw".
   })
 
+  // Hide instead of destroy on close — tray-first app stays running
+  win.on('close', (e) => {
+    if (!app.isQuitting) {
+      e.preventDefault()
+      win.hide()
+    }
+  })
+
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -181,6 +189,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
+  (app as any).isQuitting = true
   stopCalendarSync()
   await stopApiServer()
   closeDatabase()
