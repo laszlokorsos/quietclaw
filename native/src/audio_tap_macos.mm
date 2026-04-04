@@ -603,17 +603,13 @@ void AudioTapMacOS::StartMeetingDetection(MeetingCallback callback) {
         dispatch_time(DISPATCH_TIME_NOW, 0),  // Fire immediately for initial check
         5 * NSEC_PER_SEC,                      // Then every 5 seconds
         1 * NSEC_PER_SEC);                     // 1 second leeway for power efficiency
+    __block BOOL firstPoll = YES;
     dispatch_source_set_event_handler(timer, ^{
         if (!weakSelf->meetingDetectionActive_) return;
-        if (!weakSelf->IsMicRunning()) {
-            // Mic is off — if we had a meeting, it's ended
-            if (weakSelf->meetingCurrentlyDetected_) {
-                weakSelf->meetingCurrentlyDetected_ = false;
-                weakSelf->NotifyMeetingEvent("meeting:ended", "", "");
-            }
-            return;
+        if (firstPoll) {
+            firstPoll = NO;
+            weakSelf->LogToJS("Poll timer started — checking every 5s");
         }
-        // Mic is active — check for meeting windows
         weakSelf->CheckForActiveMeeting();
     });
     dispatch_resume(timer);
@@ -676,6 +672,7 @@ bool AudioTapMacOS::IsMeetingDetectionActive() const {
 
 void AudioTapMacOS::CheckForActiveMeeting() {
     // --- Step 1: Check for running native meeting apps (Zoom, Teams, FaceTime, etc.) ---
+    // (Only log on state changes to avoid spamming)
     NSArray<NSRunningApplication*>* runningApps = [[NSWorkspace sharedWorkspace] runningApplications];
     for (NSRunningApplication* app in runningApps) {
         NSString* bundleId = app.bundleIdentifier;
