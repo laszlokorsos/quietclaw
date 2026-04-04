@@ -592,30 +592,59 @@ void AudioTapMacOS::StartMeetingDetection(MeetingCallback callback) {
     LogToJS(logBuf);
     NSLog(@"[QuietClaw] %s", logBuf);
 
-    // Do an initial check in case a meeting is already active — but only if mic is running
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    // Start a fallback poll timer (every 5 seconds).
+    // The property listener only fires on mic state TRANSITIONS — if another app
+    // (e.g. Wispr Flow) already has the mic open, joining a meeting won't trigger
+    // a state change. The poll catches this case.
+    dispatch_source_t timer = dispatch_source_create(
+        DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0));
+    dispatch_source_set_timer(timer,
+        dispatch_time(DISPATCH_TIME_NOW, 0),  // Fire immediately for initial check
+        5 * NSEC_PER_SEC,                      // Then every 5 seconds
+        1 * NSEC_PER_SEC);                     // 1 second leeway for power efficiency
+    dispatch_source_set_event_handler(timer, ^{
         if (!weakSelf->meetingDetectionActive_) return;
-
-        UInt32 isRunning = 0;
-        UInt32 sz = sizeof(isRunning);
-        AudioObjectPropertyAddress chkAddr = {
-            .mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere,
-            .mScope = kAudioObjectPropertyScopeGlobal,
-            .mElement = kAudioObjectPropertyElementMain
-        };
-        AudioObjectGetPropertyData(inputDevice, &chkAddr, 0, NULL, &sz, &isRunning);
-        if (isRunning) {
-            weakSelf->LogToJS("Mic already active on startup — checking for meeting");
-            weakSelf->CheckForActiveMeeting();
-        } else {
-            weakSelf->LogToJS("Mic idle on startup — waiting for activation");
+        if (!weakSelf->IsMicRunning()) {
+            // Mic is off — if we had a meeting, it's ended
+            if (weakSelf->meetingCurrentlyDetected_) {
+                weakSelf->meetingCurrentlyDetected_ = false;
+                weakSelf->NotifyMeetingEvent("meeting:ended", "", "");
+            }
+            return;
         }
+        // Mic is active — check for meeting windows
+        weakSelf->CheckForActiveMeeting();
     });
+    dispatch_resume(timer);
+    pollTimer_ = (__bridge_retained void*)timer;
+}
+
+bool AudioTapMacOS::IsMicRunning() {
+    if (listenedDeviceId_ == 0) return false;
+    UInt32 isRunning = 0;
+    UInt32 size = sizeof(isRunning);
+    AudioObjectPropertyAddress addr = {
+        .mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere,
+        .mScope = kAudioObjectPropertyScopeGlobal,
+        .mElement = kAudioObjectPropertyElementMain
+    };
+    AudioObjectGetPropertyData(listenedDeviceId_, &addr, 0, NULL, &size, &isRunning);
+    return isRunning != 0;
 }
 
 void AudioTapMacOS::StopMeetingDetection() {
     if (!meetingDetectionActive_) return;
     meetingDetectionActive_ = false;
+
+    // Cancel the poll timer
+    if (pollTimer_) {
+        dispatch_source_t timer = (__bridge_transfer dispatch_source_t)pollTimer_;
+        dispatch_source_cancel(timer);
+        pollTimer_ = nullptr;
+    }
+
+    meetingCurrentlyDetected_ = false;
 
     // Remove the property listener using the stored device ID
     if (micPropertyListenerBlock_ && listenedDeviceId_ != 0) {
@@ -646,8 +675,6 @@ bool AudioTapMacOS::IsMeetingDetectionActive() const {
 }
 
 void AudioTapMacOS::CheckForActiveMeeting() {
-    LogToJS("Checking for active meeting...");
-
     // --- Step 1: Check for running native meeting apps (Zoom, Teams, FaceTime, etc.) ---
     NSArray<NSRunningApplication*>* runningApps = [[NSWorkspace sharedWorkspace] runningApplications];
     for (NSRunningApplication* app in runningApps) {
@@ -655,12 +682,13 @@ void AudioTapMacOS::CheckForActiveMeeting() {
         if (!bundleId) continue;
 
         if (IsNativeMeetingApp(bundleId) && !app.isTerminated) {
-            // A native meeting app is running while the mic is active → likely in a call
-            char logBuf[256];
-            snprintf(logBuf, sizeof(logBuf), "Native meeting app running: %s", [bundleId UTF8String]);
-            LogToJS(logBuf);
-
-            NotifyMeetingEvent("meeting:detected", [bundleId UTF8String], "");
+            if (!meetingCurrentlyDetected_) {
+                char logBuf[256];
+                snprintf(logBuf, sizeof(logBuf), "Native meeting app running: %s", [bundleId UTF8String]);
+                LogToJS(logBuf);
+                meetingCurrentlyDetected_ = true;
+                NotifyMeetingEvent("meeting:detected", [bundleId UTF8String], "");
+            }
             return;
         }
     }
@@ -674,24 +702,12 @@ void AudioTapMacOS::CheckForActiveMeeting() {
         [SCShareableContent getShareableContentExcludingDesktopWindows:YES
             onScreenWindowsOnly:NO
             completionHandler:^(SCShareableContent* content, NSError* error) {
-                if (error) {
-                    char logBuf[256];
-                    snprintf(logBuf, sizeof(logBuf), "SCShareableContent error: %s",
-                        [[error localizedDescription] UTF8String]);
-                    this->LogToJS(logBuf);
+                if (error || !content) {
                     dispatch_semaphore_signal(sem);
                     return;
                 }
 
-                if (!content) {
-                    this->LogToJS("SCShareableContent returned nil content");
-                    dispatch_semaphore_signal(sem);
-                    return;
-                }
-
-                int windowCount = 0;
                 for (SCWindow* window in content.windows) {
-                    windowCount++;
                     NSString* title = window.title;
                     NSString* bundleId = window.owningApplication.bundleIdentifier;
 
@@ -702,27 +718,31 @@ void AudioTapMacOS::CheckForActiveMeeting() {
                     }
                 }
 
-                char logBuf[128];
-                snprintf(logBuf, sizeof(logBuf), "Scanned %d windows, meeting found: %s",
-                    windowCount, detectedTitle ? "yes" : "no");
-                this->LogToJS(logBuf);
-
                 dispatch_semaphore_signal(sem);
             }];
 
         dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC));
 
         if (detectedBundleId && detectedTitle) {
-            NotifyMeetingEvent("meeting:detected",
-                [detectedBundleId UTF8String],
-                [detectedTitle UTF8String]);
+            if (!meetingCurrentlyDetected_) {
+                char logBuf[512];
+                snprintf(logBuf, sizeof(logBuf), "Meeting window found: %s", [detectedTitle UTF8String]);
+                LogToJS(logBuf);
+                meetingCurrentlyDetected_ = true;
+                NotifyMeetingEvent("meeting:detected",
+                    [detectedBundleId UTF8String],
+                    [detectedTitle UTF8String]);
+            }
             return;
         }
     }
 
-    // No meeting app or window found — if mic is active, it's likely Wispr/Siri/dictation
-    LogToJS("No meeting app or window detected — mic usage is non-meeting");
-    NotifyMeetingEvent("meeting:ended", "", "");
+    // No meeting found
+    if (meetingCurrentlyDetected_) {
+        LogToJS("Meeting window no longer detected");
+        meetingCurrentlyDetected_ = false;
+        NotifyMeetingEvent("meeting:ended", "", "");
+    }
 }
 
 void AudioTapMacOS::NotifyMeetingEvent(const char* eventType, const char* bundleId, const char* windowTitle) {

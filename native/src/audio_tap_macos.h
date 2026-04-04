@@ -80,7 +80,10 @@ private:
     MeetingCallback meetingCallback_;
     std::atomic<bool> meetingDetectionActive_{false};
     void* micPropertyListenerBlock_{nullptr};  // Stored for removal on stop
+    void* pollTimer_{nullptr};                  // Fallback poll timer
     uint32_t listenedDeviceId_{0};              // Device ID we attached the listener to
+    std::atomic<bool> meetingCurrentlyDetected_{false};  // Track detection state for polling
+    bool IsMicRunning();
     void CheckForActiveMeeting();
     void NotifyMeetingEvent(const char* eventType, const char* bundleId, const char* windowTitle);
     void LogToJS(const char* message);
