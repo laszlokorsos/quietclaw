@@ -465,17 +465,25 @@ static bool IsNativeMeetingApp(NSString* bundleId) {
     return [meetingApps containsObject:bundleId];
 }
 
-// Window title patterns that indicate a meeting is active in a browser
+// Window title patterns that indicate an ACTIVE meeting in a browser.
+// Must be specific enough to not match the homepage/lobby of these apps.
 static bool IsMeetingWindowTitle(NSString* title) {
     if (!title || title.length == 0) return false;
-    // Google Meet: "Meet - xxx-yyyy-zzz" or "Meeting name - Google Meet"
-    if ([title containsString:@"Meet - "] || [title containsString:@"Google Meet"]) return true;
-    // Zoom web client
-    if ([title containsString:@"Zoom Meeting"] || [title containsString:@"Zoom Workplace"]) return true;
-    // Microsoft Teams web
-    if ([title containsString:@"Microsoft Teams"]) return true;
-    // Generic WebRTC meeting indicators
-    if ([title containsString:@"Webex"]) return true;
+
+    // Google Meet active call: "Meet - xxx-yyyy-zzz" (the code is always present in active calls)
+    // The homepage just shows "Google Meet" — do NOT match that alone.
+    if ([title hasPrefix:@"Meet - "] || [title hasSuffix:@" - Google Meet"]) return true;
+
+    // Zoom web client in active meeting
+    if ([title containsString:@"Zoom Meeting"]) return true;
+
+    // Microsoft Teams active call (not just the Teams homepage)
+    // Active calls show "Meeting with ..." or the meeting name
+    if ([title containsString:@"Microsoft Teams"] && [title containsString:@"|"]) return true;
+
+    // Webex active meeting
+    if ([title containsString:@"Webex"] && [title containsString:@"Meeting"]) return true;
+
     return false;
 }
 
@@ -578,10 +586,23 @@ void AudioTapMacOS::StartMeetingDetection(MeetingCallback callback) {
     LogToJS(logBuf);
     NSLog(@"[QuietClaw] %s", logBuf);
 
-    // Do an initial check in case a meeting is already active
+    // Do an initial check in case a meeting is already active — but only if mic is running
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        if (weakSelf->meetingDetectionActive_) {
+        if (!weakSelf->meetingDetectionActive_) return;
+
+        UInt32 isRunning = 0;
+        UInt32 sz = sizeof(isRunning);
+        AudioObjectPropertyAddress chkAddr = {
+            .mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere,
+            .mScope = kAudioObjectPropertyScopeGlobal,
+            .mElement = kAudioObjectPropertyElementMain
+        };
+        AudioObjectGetPropertyData(inputDevice, &chkAddr, 0, NULL, &sz, &isRunning);
+        if (isRunning) {
+            weakSelf->LogToJS("Mic already active on startup — checking for meeting");
             weakSelf->CheckForActiveMeeting();
+        } else {
+            weakSelf->LogToJS("Mic idle on startup — waiting for activation");
         }
     });
 }
