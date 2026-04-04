@@ -141,6 +141,54 @@ Napi::Value FlushTempFile(const Napi::CallbackInfo& info) {
     return env.Undefined();
 }
 
+// startMeetingDetection(callback: (event) => void) -> void
+Napi::Value StartMeetingDetection(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsFunction()) {
+        Napi::TypeError::New(env, "Expected (callback)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+#ifdef __APPLE__
+    if (!g_audioTap) g_audioTap = std::make_unique<AudioTapMacOS>();
+
+    if (g_audioTap->IsMeetingDetectionActive()) {
+        return env.Undefined(); // Already running
+    }
+
+    Napi::Function callback = info[0].As<Napi::Function>();
+    auto tsfn = Napi::ThreadSafeFunction::New(
+        env, callback, "meetingDetectionCallback", 0, 1);
+
+    g_audioTap->StartMeetingDetection(std::move(tsfn));
+#endif
+
+    return env.Undefined();
+}
+
+// stopMeetingDetection() -> void
+Napi::Value StopMeetingDetection(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+#ifdef __APPLE__
+    if (g_audioTap) {
+        g_audioTap->StopMeetingDetection();
+    }
+#endif
+    return env.Undefined();
+}
+
+// isMeetingDetectionActive() -> boolean
+Napi::Value IsMeetingDetectionActive(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+#ifdef __APPLE__
+    if (g_audioTap) {
+        return Napi::Boolean::New(env, g_audioTap->IsMeetingDetectionActive());
+    }
+#endif
+    return Napi::Boolean::New(env, false);
+}
+
 // Module initialization
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("isAvailable", Napi::Function::New(env, IsAvailable));
@@ -150,6 +198,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("stopCapture", Napi::Function::New(env, StopCapture));
     exports.Set("isCapturing", Napi::Function::New(env, IsCapturing));
     exports.Set("flushTempFile", Napi::Function::New(env, FlushTempFile));
+    exports.Set("startMeetingDetection", Napi::Function::New(env, StartMeetingDetection));
+    exports.Set("stopMeetingDetection", Napi::Function::New(env, StopMeetingDetection));
+    exports.Set("isMeetingDetectionActive", Napi::Function::New(env, IsMeetingDetectionActive));
     return exports;
 }
 

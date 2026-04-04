@@ -15,6 +15,7 @@ import { listAccounts, addGoogleAccount, removeAccount } from './calendar/accoun
 import { isAutoRecordEnabled, setAutoRecordEnabled } from './audio/auto-record'
 import { notifyRecordingStarted, notifyRecordingStopped, notifyMeetingProcessed } from './api/ws'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
+import type { MacOSAudioCapture } from './audio/capture-macos'
 
 let tray: Tray | null = null
 
@@ -32,7 +33,8 @@ function loadTrayIcon(filename: string): Electron.NativeImage {
 
 export function setupTray(
   mainWindow: BrowserWindow | null,
-  orchestrator: PipelineOrchestrator
+  orchestrator: PipelineOrchestrator,
+  audioCapture?: MacOSAudioCapture
 ): void {
   // Load both icon variants
   const iconIdle = loadTrayIcon('tray-icon.png')
@@ -94,12 +96,14 @@ export function setupTray(
         }
       },
       {
-        label: 'Auto-Record from Calendar',
+        label: 'Auto-Record Meetings',
         type: 'checkbox',
         checked: isAutoRecordEnabled(),
-        enabled: hasDeepgramKey,
+        enabled: hasDeepgramKey && !!audioCapture,
         click: () => {
-          setAutoRecordEnabled(!isAutoRecordEnabled(), orchestrator)
+          if (audioCapture) {
+            setAutoRecordEnabled(!isAutoRecordEnabled(), audioCapture, orchestrator)
+          }
           updateMenu()
         }
       },

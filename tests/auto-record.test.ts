@@ -1,13 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { CalendarEventInfo } from '../src/main/storage/models'
 
 // Mock dependencies
-const mockGetCachedEvents = vi.fn<() => CalendarEventInfo[]>().mockReturnValue([])
-
-vi.mock('../src/main/calendar/sync', () => ({
-  getCachedEvents: () => mockGetCachedEvents()
-}))
-
 vi.mock('../src/main/config/settings', () => ({
   loadConfig: () => ({
     calendar: {
@@ -16,6 +9,14 @@ vi.mock('../src/main/config/settings', () => ({
       }
     }
   })
+}))
+
+vi.mock('../src/main/calendar/sync', () => ({
+  syncNow: vi.fn().mockResolvedValue(undefined)
+}))
+
+vi.mock('../src/main/calendar/matcher', () => ({
+  matchRecordingToEvent: vi.fn().mockReturnValue(null)
 }))
 
 vi.mock('electron', () => ({
@@ -31,44 +32,43 @@ import {
   setAutoRecordEnabled
 } from '../src/main/audio/auto-record'
 
-function makeEvent(overrides: Partial<CalendarEventInfo> = {}): CalendarEventInfo {
+type MeetingDetectionCallback = (event: { event: string; bundleId: string; windowTitle: string }) => void
+
+function makeMockCapture() {
+  let detectionCallback: MeetingDetectionCallback | null = null
   return {
-    eventId: 'evt-1',
-    calendarAccountEmail: 'test@test.com',
-    title: 'Team Standup',
-    startTime: new Date(Date.now() - 5 * 60_000).toISOString(), // started 5 min ago
-    endTime: new Date(Date.now() + 25 * 60_000).toISOString(), // ends in 25 min
-    attendees: [
-      { name: 'Alex', email: 'alex@test.com', self: true },
-      { name: 'Jamie', email: 'jamie@test.com' }
-    ],
-    meetingLink: 'https://meet.google.com/abc-def-ghi',
-    ...overrides
+    startMeetingDetection: vi.fn((cb: MeetingDetectionCallback) => {
+      detectionCallback = cb
+    }),
+    stopMeetingDetection: vi.fn(),
+    isMeetingDetectionActive: vi.fn().mockReturnValue(false),
+    // Helper to simulate events from native layer
+    _simulateEvent(event: string, bundleId: string, windowTitle = '') {
+      detectionCallback?.({ event, bundleId, windowTitle })
+    }
   }
 }
 
 function makeOrchestrator(state = 'idle' as string) {
   return {
     getState: vi.fn().mockReturnValue(state),
+    getSessionId: vi.fn().mockReturnValue(null),
     startRecording: vi.fn().mockResolvedValue(undefined),
     stopRecording: vi.fn().mockResolvedValue({
-      metadata: { duration: 1800, title: 'Test' },
+      metadata: { duration: 1800, title: 'Test', id: 'test-id' },
       transcript: { segments: [] }
     }),
     on: vi.fn()
   }
 }
 
-describe('Auto-Record', () => {
+describe('Auto-Record (Meeting Detection)', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
-    mockGetCachedEvents.mockReturnValue([])
     stopAutoRecord()
   })
 
   afterEach(() => {
     stopAutoRecord()
-    vi.useRealTimers()
   })
 
   it('starts disabled by default', () => {
@@ -76,87 +76,88 @@ describe('Auto-Record', () => {
   })
 
   it('enables when startAutoRecord is called', () => {
+    const capture = makeMockCapture()
     const orch = makeOrchestrator()
-    startAutoRecord(orch as any)
+    startAutoRecord(capture as any, orch as any)
     expect(isAutoRecordEnabled()).toBe(true)
+    expect(capture.startMeetingDetection).toHaveBeenCalled()
   })
 
   it('disables when stopAutoRecord is called', () => {
+    const capture = makeMockCapture()
     const orch = makeOrchestrator()
-    startAutoRecord(orch as any)
+    startAutoRecord(capture as any, orch as any)
     stopAutoRecord()
     expect(isAutoRecordEnabled()).toBe(false)
   })
 
   it('toggles via setAutoRecordEnabled', () => {
+    const capture = makeMockCapture()
     const orch = makeOrchestrator()
-    setAutoRecordEnabled(true, orch as any)
+    setAutoRecordEnabled(true, capture as any, orch as any)
     expect(isAutoRecordEnabled()).toBe(true)
-    setAutoRecordEnabled(false, orch as any)
+    setAutoRecordEnabled(false, capture as any, orch as any)
     expect(isAutoRecordEnabled()).toBe(false)
   })
 
-  it('triggers recording when event with meeting link is active', async () => {
+  it('starts recording when meeting:detected event fires', async () => {
+    const capture = makeMockCapture()
     const orch = makeOrchestrator()
-    mockGetCachedEvents.mockReturnValue([makeEvent()])
+    startAutoRecord(capture as any, orch as any)
 
-    startAutoRecord(orch as any)
+    // Simulate Zoom meeting detected
+    capture._simulateEvent('meeting:detected', 'us.zoom.xos', '')
 
-    // Allow the initial check to run
-    await vi.advanceTimersByTimeAsync(100)
+    // Allow async startRecording to resolve
+    await new Promise((r) => setTimeout(r, 50))
 
     expect(orch.startRecording).toHaveBeenCalledWith('Me')
   })
 
-  it('does NOT trigger for events without meeting links', async () => {
-    const orch = makeOrchestrator()
-    mockGetCachedEvents.mockReturnValue([
-      makeEvent({ meetingLink: undefined })
-    ])
-
-    startAutoRecord(orch as any)
-    await vi.advanceTimersByTimeAsync(100)
-
-    expect(orch.startRecording).not.toHaveBeenCalled()
-  })
-
-  it('does NOT trigger when orchestrator is already recording', async () => {
+  it('does NOT start when orchestrator is already recording', async () => {
+    const capture = makeMockCapture()
     const orch = makeOrchestrator('recording')
-    mockGetCachedEvents.mockReturnValue([makeEvent()])
+    startAutoRecord(capture as any, orch as any)
 
-    startAutoRecord(orch as any)
-    await vi.advanceTimersByTimeAsync(100)
-
-    expect(orch.startRecording).not.toHaveBeenCalled()
-  })
-
-  it('does NOT trigger for events in the future (outside slack)', async () => {
-    const orch = makeOrchestrator()
-    mockGetCachedEvents.mockReturnValue([
-      makeEvent({
-        startTime: new Date(Date.now() + 10 * 60_000).toISOString(), // 10 min from now
-        endTime: new Date(Date.now() + 40 * 60_000).toISOString()
-      })
-    ])
-
-    startAutoRecord(orch as any)
-    await vi.advanceTimersByTimeAsync(100)
+    capture._simulateEvent('meeting:detected', 'us.zoom.xos', '')
+    await new Promise((r) => setTimeout(r, 50))
 
     expect(orch.startRecording).not.toHaveBeenCalled()
   })
 
-  it('triggers for events starting within 2-minute slack', async () => {
+  it('does not immediately stop on meeting:ended (debounce)', async () => {
+    const capture = makeMockCapture()
     const orch = makeOrchestrator()
-    mockGetCachedEvents.mockReturnValue([
-      makeEvent({
-        startTime: new Date(Date.now() + 1 * 60_000).toISOString(), // 1 min from now
-        endTime: new Date(Date.now() + 31 * 60_000).toISOString()
-      })
-    ])
+    startAutoRecord(capture as any, orch as any)
 
-    startAutoRecord(orch as any)
-    await vi.advanceTimersByTimeAsync(100)
+    // Start a meeting
+    capture._simulateEvent('meeting:detected', 'us.zoom.xos', '')
+    await new Promise((r) => setTimeout(r, 50))
 
-    expect(orch.startRecording).toHaveBeenCalled()
+    // Now orchestrator is "recording"
+    orch.getState.mockReturnValue('recording')
+
+    // End signal
+    capture._simulateEvent('meeting:ended', '', '')
+
+    // Should NOT have stopped yet (10s debounce)
+    expect(orch.stopRecording).not.toHaveBeenCalled()
+  })
+
+  it('ignores duplicate meeting:detected for same app', async () => {
+    const capture = makeMockCapture()
+    const orch = makeOrchestrator()
+    startAutoRecord(capture as any, orch as any)
+
+    capture._simulateEvent('meeting:detected', 'us.zoom.xos', '')
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Second detection for same app
+    orch.getState.mockReturnValue('recording')
+    capture._simulateEvent('meeting:detected', 'us.zoom.xos', '')
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Should only have started once
+    expect(orch.startRecording).toHaveBeenCalledTimes(1)
   })
 })

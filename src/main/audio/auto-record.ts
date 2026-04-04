@@ -1,70 +1,77 @@
 /**
- * Automatic recording based on calendar events.
+ * Automatic recording via meeting app detection.
  *
- * Polls cached calendar events every 30 seconds. When an event with a
- * meeting link starts (within a configurable slack window), automatically
- * starts recording. When the event ends, automatically stops.
+ * Uses Core Audio property listeners (event-driven, no polling) to detect
+ * when a known meeting app (Zoom, Google Meet, Teams) has both microphone
+ * input AND audio output active — meaning the user is on a call.
  *
- * Only triggers for events with meeting links (Google Meet, Zoom) —
- * events without links are ignored to avoid false positives.
+ * This filters out non-call mic usage (Wispr Flow, Siri, dictation) since
+ * those only have input, not bidirectional audio.
+ *
+ * Once a meeting is detected:
+ *   1. Recording starts immediately
+ *   2. Calendar is checked to correlate with a scheduled event (for title + attendees)
+ *   3. When the meeting app stops bidirectional audio, recording stops
+ *   4. Desktop notification on start and stop
  */
 
 import { Notification } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig } from '../config/settings'
-import { getCachedEvents } from '../calendar/sync'
+import { matchRecordingToEvent } from '../calendar/matcher'
+import { syncNow } from '../calendar/sync'
+import type { MacOSAudioCapture, MeetingDetectionEvent } from './capture-macos'
 import type { PipelineOrchestrator } from '../pipeline/orchestrator'
-import type { CalendarEventInfo } from '../storage/models'
 
-/** How often to check for events (ms) */
-const CHECK_INTERVAL_MS = 30_000
-
-/** Minutes before event start to trigger recording */
-const START_SLACK_MINUTES = 2
-
-/** Minutes after event end to auto-stop (grace period for overrun) */
-const END_GRACE_MINUTES = 5
-
-let checkTimer: ReturnType<typeof setInterval> | null = null
-let activeEventId: string | null = null
-let autoStopTimer: ReturnType<typeof setTimeout> | null = null
 let enabled = false
+let audioCapture: MacOSAudioCapture | null = null
+let activeOrchestrator: PipelineOrchestrator | null = null
+let activeMeetingBundleId: string | null = null
+
+/** Debounce: ignore rapid meeting:ended events (brief mutes, etc.) */
+let endDebounceTimer: ReturnType<typeof setTimeout> | null = null
+const END_DEBOUNCE_MS = 10_000 // 10 seconds of no meeting signal before stopping
 
 /**
- * Start the auto-record watcher.
+ * Start the auto-record meeting detector.
  */
-export function startAutoRecord(orchestrator: PipelineOrchestrator): void {
+export function startAutoRecord(
+  capture: MacOSAudioCapture,
+  orchestrator: PipelineOrchestrator
+): void {
   const config = loadConfig()
   if (!config.calendar.settings.use_for_auto_detect) {
     log.info('[AutoRecord] Disabled in config (use_for_auto_detect = false)')
     return
   }
 
+  audioCapture = capture
+  activeOrchestrator = orchestrator
   enabled = true
-  log.info('[AutoRecord] Watcher started — checking every 30s')
 
-  // Check immediately, then on interval
-  checkAndTrigger(orchestrator)
-  checkTimer = setInterval(() => {
-    checkAndTrigger(orchestrator)
-  }, CHECK_INTERVAL_MS)
+  capture.startMeetingDetection((event: MeetingDetectionEvent) => {
+    handleMeetingEvent(event)
+  })
+
+  log.info('[AutoRecord] Meeting detection started — listening for call apps')
 }
 
 /**
- * Stop the auto-record watcher.
+ * Stop the auto-record meeting detector.
  */
 export function stopAutoRecord(): void {
   enabled = false
-  if (checkTimer) {
-    clearInterval(checkTimer)
-    checkTimer = null
+  if (endDebounceTimer) {
+    clearTimeout(endDebounceTimer)
+    endDebounceTimer = null
   }
-  if (autoStopTimer) {
-    clearTimeout(autoStopTimer)
-    autoStopTimer = null
+  if (audioCapture?.isMeetingDetectionActive()) {
+    audioCapture.stopMeetingDetection()
   }
-  activeEventId = null
-  log.info('[AutoRecord] Watcher stopped')
+  audioCapture = null
+  activeOrchestrator = null
+  activeMeetingBundleId = null
+  log.info('[AutoRecord] Meeting detection stopped')
 }
 
 /**
@@ -79,151 +86,118 @@ export function isAutoRecordEnabled(): boolean {
  */
 export function setAutoRecordEnabled(
   value: boolean,
+  capture: MacOSAudioCapture,
   orchestrator: PipelineOrchestrator
 ): void {
   if (value && !enabled) {
-    startAutoRecord(orchestrator)
+    startAutoRecord(capture, orchestrator)
   } else if (!value && enabled) {
     stopAutoRecord()
   }
 }
 
 /**
- * Core check: find events that should trigger recording.
+ * Handle a meeting detection event from the native layer.
  */
-function checkAndTrigger(orchestrator: PipelineOrchestrator): void {
-  if (!enabled) return
+function handleMeetingEvent(event: MeetingDetectionEvent): void {
+  if (!enabled || !activeOrchestrator) return
 
-  const state = orchestrator.getState()
-  const now = new Date()
-  const events = getCachedEvents()
-
-  // If we're already recording from an auto-triggered event, check if it's time to stop
-  if (state === 'recording' && activeEventId) {
-    const activeEvent = events.find((e) => e.eventId === activeEventId)
-    if (activeEvent) {
-      const eventEnd = new Date(activeEvent.endTime)
-      const graceEnd = new Date(eventEnd.getTime() + END_GRACE_MINUTES * 60_000)
-
-      if (now > graceEnd) {
-        log.info(`[AutoRecord] Event "${activeEvent.title}" ended — auto-stopping`)
-        autoStop(orchestrator, activeEvent)
-      }
+  if (event.event === 'meeting:detected') {
+    // Clear any pending end-debounce (the meeting is still active)
+    if (endDebounceTimer) {
+      clearTimeout(endDebounceTimer)
+      endDebounceTimer = null
     }
-    return
+
+    // If already recording this meeting, nothing to do
+    if (activeMeetingBundleId === event.bundleId) return
+
+    // If already recording (manually or different meeting), don't interfere
+    if (activeOrchestrator.getState() !== 'idle') return
+
+    log.info(
+      `[AutoRecord] Meeting detected: ${event.bundleId}` +
+        (event.windowTitle ? ` — "${event.windowTitle}"` : '')
+    )
+
+    activeMeetingBundleId = event.bundleId
+    autoStart(event)
+  } else if (event.event === 'meeting:ended') {
+    // Only act if we're the ones who started this recording
+    if (!activeMeetingBundleId) return
+    if (activeOrchestrator.getState() !== 'recording') return
+
+    // Debounce: wait before stopping (handles brief mutes, reconnects)
+    if (!endDebounceTimer) {
+      log.info('[AutoRecord] Meeting signal ended — waiting 10s before stopping')
+      endDebounceTimer = setTimeout(() => {
+        endDebounceTimer = null
+        if (activeOrchestrator?.getState() === 'recording' && activeMeetingBundleId) {
+          autoStop()
+        }
+      }, END_DEBOUNCE_MS)
+    }
   }
-
-  // If already recording (manually), don't interfere
-  if (state !== 'idle') return
-
-  // Look for an event that should trigger recording
-  const candidate = findTriggerEvent(events, now)
-  if (!candidate) return
-
-  // Don't re-trigger the same event
-  if (candidate.eventId === activeEventId) return
-
-  log.info(`[AutoRecord] Triggering recording for "${candidate.title}"`)
-  autoStart(orchestrator, candidate)
 }
 
 /**
- * Find a calendar event that should trigger auto-recording right now.
- *
- * Criteria:
- * - Has a meeting link (Google Meet, Zoom, etc.)
- * - Current time is within [event.start - slack, event.end]
+ * Auto-start recording for a detected meeting.
  */
-function findTriggerEvent(
-  events: CalendarEventInfo[],
-  now: Date
-): CalendarEventInfo | null {
-  const slackMs = START_SLACK_MINUTES * 60_000
+async function autoStart(event: MeetingDetectionEvent): Promise<void> {
+  if (!activeOrchestrator) return
 
-  for (const event of events) {
-    if (!event.meetingLink) continue
-
-    const eventStart = new Date(event.startTime)
-    const eventEnd = new Date(event.endTime)
-    const triggerStart = new Date(eventStart.getTime() - slackMs)
-
-    if (now >= triggerStart && now <= eventEnd) {
-      return event
-    }
+  // Sync calendar and try to match
+  try {
+    await syncNow()
+  } catch {
+    // Calendar sync failure is non-fatal
   }
 
-  return null
-}
-
-/**
- * Auto-start recording for a calendar event.
- */
-async function autoStart(
-  orchestrator: PipelineOrchestrator,
-  event: CalendarEventInfo
-): Promise<void> {
-  activeEventId = event.eventId
+  const calendarMatch = matchRecordingToEvent()
+  const eventTitle = calendarMatch?.event.title ?? event.windowTitle ?? 'Detected call'
 
   // Show desktop notification
   const notification = new Notification({
     title: 'QuietClaw — Recording Started',
-    body: `Auto-recording: ${event.title}`,
+    body: `Auto-recording: ${eventTitle}`,
     silent: true
   })
   notification.show()
 
   try {
-    await orchestrator.startRecording('Me')
-    log.info(`[AutoRecord] Recording started for "${event.title}"`)
-
-    // Set auto-stop timer for event end + grace period
-    const eventEnd = new Date(event.endTime)
-    const graceEnd = new Date(eventEnd.getTime() + END_GRACE_MINUTES * 60_000)
-    const msUntilStop = graceEnd.getTime() - Date.now()
-
-    if (msUntilStop > 0) {
-      autoStopTimer = setTimeout(() => {
-        if (orchestrator.getState() === 'recording' && activeEventId === event.eventId) {
-          log.info(`[AutoRecord] Auto-stop timer fired for "${event.title}"`)
-          autoStop(orchestrator, event)
-        }
-      }, msUntilStop)
-    }
+    await activeOrchestrator.startRecording('Me')
+    log.info(`[AutoRecord] Recording started for "${eventTitle}"`)
   } catch (err) {
-    log.error(`[AutoRecord] Failed to start recording for "${event.title}":`, err)
-    activeEventId = null
+    log.error('[AutoRecord] Failed to start recording:', err)
+    activeMeetingBundleId = null
   }
 }
 
 /**
- * Auto-stop recording after an event ends.
+ * Auto-stop recording after meeting ends.
  */
-async function autoStop(
-  orchestrator: PipelineOrchestrator,
-  event: CalendarEventInfo
-): Promise<void> {
-  if (autoStopTimer) {
-    clearTimeout(autoStopTimer)
-    autoStopTimer = null
+async function autoStop(): Promise<void> {
+  if (!activeOrchestrator || activeOrchestrator.getState() !== 'recording') {
+    activeMeetingBundleId = null
+    return
   }
 
   try {
-    const result = await orchestrator.stopRecording()
+    const result = await activeOrchestrator.stopRecording()
     log.info(
-      `[AutoRecord] Recording stopped for "${event.title}" — ` +
-        `${result.transcript.segments.length} segments`
+      `[AutoRecord] Recording stopped — ${result.transcript.segments.length} segments, ` +
+        `${result.metadata.duration.toFixed(0)}s`
     )
 
-    // Show completion notification
     const notification = new Notification({
       title: 'QuietClaw — Meeting Processed',
-      body: `${event.title}: ${result.transcript.segments.length} segments, ${result.metadata.duration.toFixed(0)}s`,
+      body: `${result.metadata.title}: ${result.transcript.segments.length} segments`,
       silent: true
     })
     notification.show()
   } catch (err) {
-    log.error(`[AutoRecord] Failed to stop recording for "${event.title}":`, err)
+    log.error('[AutoRecord] Failed to stop recording:', err)
   }
 
-  activeEventId = null
+  activeMeetingBundleId = null
 }

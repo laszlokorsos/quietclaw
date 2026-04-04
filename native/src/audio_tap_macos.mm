@@ -435,3 +435,304 @@ void AudioTapMacOS::FlushToTempFile() {
         fflush(tempFile_);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Meeting Detection — listens for mic activation, then checks which process
+// has both audio input AND output active (= a call, not dictation/Siri).
+// ---------------------------------------------------------------------------
+
+// Known meeting app bundle IDs
+static bool IsKnownMeetingApp(NSString* bundleId) {
+    static NSSet* meetingApps = [NSSet setWithObjects:
+        @"us.zoom.xos",                // Zoom
+        @"com.microsoft.teams",         // Microsoft Teams
+        @"com.microsoft.teams2",        // Teams (new)
+        @"com.apple.FaceTime",          // FaceTime
+        @"com.webex.meetingmanager",    // Webex
+        // Browsers that could host Google Meet / web-based calls
+        @"com.google.Chrome",
+        @"com.google.Chrome.canary",
+        @"com.apple.Safari",
+        @"company.thebrowser.Browser",  // Arc
+        @"com.brave.Browser",
+        @"com.microsoft.edgemac",
+        @"org.mozilla.firefox",
+        nil
+    ];
+    return [meetingApps containsObject:bundleId];
+}
+
+static bool IsBrowserBundleId(NSString* bundleId) {
+    static NSSet* browsers = [NSSet setWithObjects:
+        @"com.google.Chrome",
+        @"com.google.Chrome.canary",
+        @"com.apple.Safari",
+        @"company.thebrowser.Browser",
+        @"com.brave.Browser",
+        @"com.microsoft.edgemac",
+        @"org.mozilla.firefox",
+        nil
+    ];
+    return [browsers containsObject:bundleId];
+}
+
+void AudioTapMacOS::StartMeetingDetection(MeetingCallback callback) {
+    if (meetingDetectionActive_) return;
+
+    meetingCallback_ = std::move(callback);
+    meetingDetectionActive_ = true;
+
+    // Get the default input (mic) device
+    AudioObjectPropertyAddress deviceAddr = {
+        .mSelector = kAudioHardwarePropertyDefaultInputDevice,
+        .mScope = kAudioObjectPropertyScopeGlobal,
+        .mElement = kAudioObjectPropertyElementMain
+    };
+
+    AudioDeviceID inputDevice = 0;
+    UInt32 propSize = sizeof(inputDevice);
+    OSStatus status = AudioObjectGetPropertyData(
+        kAudioObjectSystemObject, &deviceAddr, 0, NULL, &propSize, &inputDevice);
+
+    if (status != noErr || inputDevice == 0) {
+        NSLog(@"[QuietClaw] Failed to get default input device: %d", (int)status);
+        return;
+    }
+
+    // Listen for "device is running somewhere" changes on the mic device
+    AudioObjectPropertyAddress runningAddr = {
+        .mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere,
+        .mScope = kAudioObjectPropertyScopeGlobal,
+        .mElement = kAudioObjectPropertyElementMain
+    };
+
+    // Store a weak reference to this for the block
+    AudioTapMacOS* weakSelf = this;
+
+    // Use a block-based listener
+    AudioObjectPropertyListenerBlock listenerBlock =
+        ^(UInt32 inNumberAddresses, const AudioObjectPropertyAddress* inAddresses) {
+            if (!weakSelf->meetingDetectionActive_) return;
+
+            UInt32 isRunning = 0;
+            UInt32 size = sizeof(isRunning);
+            AudioObjectPropertyAddress addr = {
+                .mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere,
+                .mScope = kAudioObjectPropertyScopeGlobal,
+                .mElement = kAudioObjectPropertyElementMain
+            };
+            AudioObjectGetPropertyData(inputDevice, &addr, 0, NULL, &size, &isRunning);
+
+            NSLog(@"[QuietClaw] Mic device running state changed: %d", isRunning);
+
+            // Give the system a moment for audio routing to settle, then check processes
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(500 * NSEC_PER_MSEC)),
+                dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    if (weakSelf->meetingDetectionActive_) {
+                        weakSelf->CheckForActiveMeeting();
+                    }
+                });
+        };
+
+    status = AudioObjectAddPropertyListenerBlock(
+        inputDevice, &runningAddr,
+        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
+        listenerBlock);
+
+    if (status != noErr) {
+        NSLog(@"[QuietClaw] Failed to add mic property listener: %d", (int)status);
+        return;
+    }
+
+    // Store the block for removal later (bridged to void* for C++ storage)
+    micPropertyListenerBlock_ = (__bridge_retained void*)
+        [listenerBlock copy];
+
+    NSLog(@"[QuietClaw] Meeting detection started — listening on device %d", inputDevice);
+
+    // Do an initial check in case a meeting is already active
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        if (weakSelf->meetingDetectionActive_) {
+            weakSelf->CheckForActiveMeeting();
+        }
+    });
+}
+
+void AudioTapMacOS::StopMeetingDetection() {
+    if (!meetingDetectionActive_) return;
+    meetingDetectionActive_ = false;
+
+    // Remove the property listener
+    if (micPropertyListenerBlock_) {
+        AudioObjectPropertyAddress deviceAddr = {
+            .mSelector = kAudioHardwarePropertyDefaultInputDevice,
+            .mScope = kAudioObjectPropertyScopeGlobal,
+            .mElement = kAudioObjectPropertyElementMain
+        };
+
+        AudioDeviceID inputDevice = 0;
+        UInt32 propSize = sizeof(inputDevice);
+        AudioObjectGetPropertyData(
+            kAudioObjectSystemObject, &deviceAddr, 0, NULL, &propSize, &inputDevice);
+
+        if (inputDevice != 0) {
+            AudioObjectPropertyAddress runningAddr = {
+                .mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere,
+                .mScope = kAudioObjectPropertyScopeGlobal,
+                .mElement = kAudioObjectPropertyElementMain
+            };
+            AudioObjectPropertyListenerBlock block =
+                (__bridge_transfer AudioObjectPropertyListenerBlock)micPropertyListenerBlock_;
+            AudioObjectRemovePropertyListenerBlock(
+                inputDevice, &runningAddr,
+                dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
+                block);
+        }
+        micPropertyListenerBlock_ = nullptr;
+    }
+
+    if (meetingCallback_) {
+        meetingCallback_.Release();
+    }
+
+    NSLog(@"[QuietClaw] Meeting detection stopped");
+}
+
+bool AudioTapMacOS::IsMeetingDetectionActive() const {
+    return meetingDetectionActive_;
+}
+
+void AudioTapMacOS::CheckForActiveMeeting() {
+    // Use kAudioHardwarePropertyProcessObjectList to enumerate all processes
+    // using Core Audio, then check which ones have both input AND output active.
+    AudioObjectPropertyAddress processListAddr = {
+        .mSelector = kAudioHardwarePropertyProcessObjectList,
+        .mScope = kAudioObjectPropertyScopeGlobal,
+        .mElement = kAudioObjectPropertyElementMain
+    };
+
+    UInt32 propSize = 0;
+    OSStatus status = AudioObjectGetPropertyDataSize(
+        kAudioObjectSystemObject, &processListAddr, 0, NULL, &propSize);
+    if (status != noErr || propSize == 0) return;
+
+    UInt32 processCount = propSize / sizeof(AudioObjectID);
+    std::vector<AudioObjectID> processObjects(processCount);
+    status = AudioObjectGetPropertyData(
+        kAudioObjectSystemObject, &processListAddr, 0, NULL, &propSize, processObjects.data());
+    if (status != noErr) return;
+
+    bool foundMeeting = false;
+
+    for (AudioObjectID procObj : processObjects) {
+        // Check if this process has active input (mic)
+        AudioObjectPropertyAddress inputAddr = {
+            .mSelector = kAudioProcessPropertyIsRunningInput,
+            .mScope = kAudioObjectPropertyScopeGlobal,
+            .mElement = kAudioObjectPropertyElementMain
+        };
+        UInt32 isRunningInput = 0;
+        UInt32 size = sizeof(isRunningInput);
+        status = AudioObjectGetPropertyData(procObj, &inputAddr, 0, NULL, &size, &isRunningInput);
+        if (status != noErr || !isRunningInput) continue;
+
+        // Check if this process also has active output (speaker)
+        AudioObjectPropertyAddress outputAddr = {
+            .mSelector = kAudioProcessPropertyIsRunningOutput,
+            .mScope = kAudioObjectPropertyScopeGlobal,
+            .mElement = kAudioObjectPropertyElementMain
+        };
+        UInt32 isRunningOutput = 0;
+        size = sizeof(isRunningOutput);
+        status = AudioObjectGetPropertyData(procObj, &outputAddr, 0, NULL, &size, &isRunningOutput);
+        if (status != noErr || !isRunningOutput) continue;
+
+        // This process has BOTH input and output — get its bundle ID
+        AudioObjectPropertyAddress bundleAddr = {
+            .mSelector = kAudioProcessPropertyBundleID,
+            .mScope = kAudioObjectPropertyScopeGlobal,
+            .mElement = kAudioObjectPropertyElementMain
+        };
+
+        CFStringRef bundleIdRef = NULL;
+        size = sizeof(bundleIdRef);
+        status = AudioObjectGetPropertyData(procObj, &bundleAddr, 0, NULL, &size, &bundleIdRef);
+        if (status != noErr || !bundleIdRef) continue;
+
+        NSString* bundleId = (__bridge_transfer NSString*)bundleIdRef;
+
+        if (IsKnownMeetingApp(bundleId)) {
+            NSLog(@"[QuietClaw] Detected meeting app with bidirectional audio: %@", bundleId);
+
+            // For browsers, check window titles for meeting keywords
+            NSString* windowTitle = nil;
+            if (IsBrowserBundleId(bundleId)) {
+                // Use ScreenCaptureKit to find meeting-related window titles
+                dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+                __block NSString* detectedTitle = nil;
+
+                if (@available(macOS 12.3, *)) {
+                    [SCShareableContent getShareableContentExcludingDesktopWindows:YES
+                        onScreenWindowsOnly:YES
+                        completionHandler:^(SCShareableContent* content, NSError* error) {
+                            if (!error && content) {
+                                for (SCWindow* window in content.windows) {
+                                    if ([window.owningApplication.bundleIdentifier isEqualToString:bundleId]) {
+                                        NSString* title = window.title;
+                                        if (title &&
+                                            ([title containsString:@"Meet -"] ||
+                                             [title containsString:@"Google Meet"] ||
+                                             [title containsString:@"Zoom Meeting"] ||
+                                             [title containsString:@"Microsoft Teams"])) {
+                                            detectedTitle = title;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            dispatch_semaphore_signal(sem);
+                        }];
+                    dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+                }
+
+                if (!detectedTitle) {
+                    // Browser has bidirectional audio but no meeting window title found.
+                    // Could be a WebRTC call on another site — skip it.
+                    NSLog(@"[QuietClaw] Browser %@ has bidirectional audio but no meeting title found — skipping", bundleId);
+                    continue;
+                }
+                windowTitle = detectedTitle;
+            }
+
+            // Notify JS about the detected meeting
+            NotifyMeetingEvent("meeting:detected",
+                [bundleId UTF8String],
+                windowTitle ? [windowTitle UTF8String] : "");
+            foundMeeting = true;
+            break;
+        }
+    }
+
+    if (!foundMeeting) {
+        // Check if any previously-detected meeting has ended
+        // (no process with bidirectional audio from a known meeting app)
+        NotifyMeetingEvent("meeting:ended", "", "");
+    }
+}
+
+void AudioTapMacOS::NotifyMeetingEvent(const char* eventType, const char* bundleId, const char* windowTitle) {
+    if (!meetingCallback_) return;
+
+    std::string evtStr(eventType);
+    std::string bundleStr(bundleId);
+    std::string titleStr(windowTitle);
+
+    meetingCallback_.NonBlockingCall(
+        [evtStr, bundleStr, titleStr](Napi::Env env, Napi::Function callback) {
+            Napi::Object result = Napi::Object::New(env);
+            result.Set("event", Napi::String::New(env, evtStr));
+            result.Set("bundleId", Napi::String::New(env, bundleStr));
+            result.Set("windowTitle", Napi::String::New(env, titleStr));
+            callback.Call({result});
+        });
+}

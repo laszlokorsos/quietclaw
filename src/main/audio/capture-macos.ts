@@ -14,6 +14,12 @@ import log from 'electron-log/main'
 import type { AudioCaptureProvider, AudioChunk, AudioDataCallback, CaptureOptions } from './types'
 
 // The native addon is loaded at runtime from the build output
+export interface MeetingDetectionEvent {
+  event: 'meeting:detected' | 'meeting:ended'
+  bundleId: string
+  windowTitle: string
+}
+
 interface NativeAudioTap {
   isAvailable(): boolean
   hasPermission(): boolean
@@ -25,6 +31,9 @@ interface NativeAudioTap {
   stopCapture(): void
   isCapturing(): boolean
   flushTempFile(): void
+  startMeetingDetection(callback: (event: MeetingDetectionEvent) => void): void
+  stopMeetingDetection(): void
+  isMeetingDetectionActive(): boolean
 }
 
 function loadNativeAddon(): NativeAudioTap {
@@ -156,6 +165,25 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
     } catch {
       return []
     }
+  }
+
+  // --- Meeting detection ---
+
+  /** Start listening for meeting app activation (mic + speaker from same app) */
+  startMeetingDetection(callback: (event: MeetingDetectionEvent) => void): void {
+    this.native.startMeetingDetection(callback)
+    log.info('[AudioCapture] Meeting detection started')
+  }
+
+  /** Stop listening for meeting app activation */
+  stopMeetingDetection(): void {
+    this.native.stopMeetingDetection()
+    log.info('[AudioCapture] Meeting detection stopped')
+  }
+
+  /** Whether meeting detection is currently active */
+  isMeetingDetectionActive(): boolean {
+    return this.native.isMeetingDetectionActive()
   }
 
   // --- Private ---

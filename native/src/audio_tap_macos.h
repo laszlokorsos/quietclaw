@@ -47,6 +47,14 @@ public:
     void SetTempFilePath(const std::string& path);
     void FlushToTempFile();
 
+    // Meeting detection — monitors mic activation via Core Audio property listeners.
+    // When a known meeting app (Zoom, Chrome/Meet, Teams) has both input AND output
+    // active, fires the callback with the app's bundle ID.
+    using MeetingCallback = Napi::ThreadSafeFunction;
+    void StartMeetingDetection(MeetingCallback callback);
+    void StopMeetingDetection();
+    bool IsMeetingDetectionActive() const;
+
 private:
     void StartSystemCapture(uint32_t sampleRate);
     void StartMicCapture(uint32_t sampleRate);
@@ -67,4 +75,11 @@ private:
     std::string tempFilePath_;
     std::mutex tempFileMutex_;
     FILE* tempFile_{nullptr};
+
+    // Meeting detection state
+    MeetingCallback meetingCallback_;
+    std::atomic<bool> meetingDetectionActive_{false};
+    void* micPropertyListenerBlock_{nullptr};  // Stored for removal on stop
+    void CheckForActiveMeeting();
+    void NotifyMeetingEvent(const char* eventType, const char* bundleId, const char* windowTitle);
 };
