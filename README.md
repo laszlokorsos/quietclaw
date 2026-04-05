@@ -52,10 +52,14 @@ git clone https://github.com/laszlokorsos/quietclaw.git
 cd quietclaw
 pnpm install
 pnpm run build:native    # Build the native Core Audio addon
-pnpm dev                 # Launch in dev mode
+pnpm build               # Build the app + package as DMG
 ```
 
+The built `.dmg` is in `dist/`. Open it, drag QuietClaw to Applications, and launch. It runs as a menu bar app — look for the icon in your top bar.
+
 On first launch, macOS will prompt for **Screen Recording** permission (required for audio taps).
+
+> **Developer mode:** If you want to hack on QuietClaw instead, run `pnpm dev` for hot-reloading dev mode.
 
 ### API Keys
 
