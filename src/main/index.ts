@@ -87,6 +87,9 @@ app.whenReady().then(async () => {
   const config = loadConfig()
   log.info('[App] Config loaded')
 
+  // Sync launch-at-login setting with the OS
+  app.setLoginItemSettings({ openAtLogin: config.general.launch_at_login ?? true })
+
   // Initialize SQLite database
   try {
     initDatabase()

@@ -80,6 +80,7 @@ export interface AppConfig {
     markdown_output: boolean
     onboarding_complete: boolean
     theme: 'system' | 'light' | 'dark'
+    launch_at_login: boolean
   }
   consent: ConsentConfig
   calendar: {
@@ -109,7 +110,8 @@ function getDefaults(): AppConfig {
       audio_retention_days: 30,
       markdown_output: true,
       onboarding_complete: false,
-      theme: 'dark' as const
+      theme: 'dark' as const,
+      launch_at_login: true
     },
     consent: {
       auto_message_enabled: false,

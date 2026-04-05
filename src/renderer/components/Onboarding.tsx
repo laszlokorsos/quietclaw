@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 
 const api = (window as any).quietclaw
 
-type Step = 'consent' | 'permission' | 'deepgram' | 'calendar' | 'anthropic'
+type Step = 'consent' | 'permission' | 'deepgram' | 'calendar' | 'anthropic' | 'launch'
 
-const STEPS: Step[] = ['consent', 'permission', 'deepgram', 'calendar', 'anthropic']
+const STEPS: Step[] = ['consent', 'permission', 'deepgram', 'calendar', 'anthropic', 'launch']
 
 export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState<Step>('consent')
@@ -18,6 +18,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [savingAnthropic, setSavingAnthropic] = useState(false)
   const [connectingCalendar, setConnectingCalendar] = useState(false)
   const [calendarConnected, setCalendarConnected] = useState(false)
+  const [launchAtLogin, setLaunchAtLogin] = useState(true)
 
   const stepIndex = STEPS.indexOf(step)
 
@@ -99,7 +100,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     setSavingAnthropic(true)
     await api.secrets.setAnthropicKey(anthropicKey.trim())
     setSavingAnthropic(false)
-    await finishOnboarding()
+    goNext()
   }
 
   return (
@@ -133,6 +134,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             {step === 'deepgram' && 'Speech-to-Text'}
             {step === 'calendar' && 'Google Calendar'}
             {step === 'anthropic' && 'AI Summarization'}
+            {step === 'launch' && "You're All Set"}
           </h1>
           <p className="text-sm text-text-secondary">
             {step === 'consent' &&
@@ -145,6 +147,8 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
               'Connect your calendar to auto-match recordings to events and identify speakers.'}
             {step === 'anthropic' &&
               'Optionally enable AI-powered meeting summaries and action item extraction.'}
+            {step === 'launch' &&
+              'QuietClaw runs quietly in your menu bar, automatically recording your meetings.'}
           </p>
         </div>
 
@@ -297,8 +301,37 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                 {savingAnthropic
                   ? 'Saving...'
                   : anthropicKey.trim()
-                    ? 'Save Key & Finish'
-                    : 'Skip & Finish'}
+                    ? 'Save Key & Continue'
+                    : 'Skip'}
+              </button>
+            </div>
+          )}
+
+          {step === 'launch' && (
+            <div className="space-y-4">
+              <label className="flex items-center justify-between bg-surface-secondary rounded-xl px-4 py-4 cursor-pointer select-none">
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Launch at login</p>
+                  <p className="text-xs text-text-muted mt-0.5">Start QuietClaw automatically when you log in</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={launchAtLogin}
+                  onClick={() => setLaunchAtLogin(!launchAtLogin)}
+                  className={`relative w-10 h-6 rounded-full transition-colors ${launchAtLogin ? 'bg-accent' : 'bg-border'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${launchAtLogin ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+              </label>
+              <button
+                onClick={async () => {
+                  if (api) await api.config.setField('launch_at_login', launchAtLogin)
+                  await finishOnboarding()
+                }}
+                className="w-full px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover transition-colors"
+              >
+                Get Started
               </button>
             </div>
           )}

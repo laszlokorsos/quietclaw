@@ -5,7 +5,7 @@
  * to call these handlers.
  */
 
-import { ipcMain, dialog, shell, nativeTheme } from 'electron'
+import { app, ipcMain, dialog, shell, nativeTheme } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig, updateConfigField, reloadConfig } from './config/settings'
 import { getDeepgramApiKey, getAnthropicApiKey, setDeepgramApiKey, setAnthropicApiKey } from './config/secrets'
@@ -50,6 +50,9 @@ export function setupIpcHandlers(
 
   ipcMain.handle('config:setField', (_event, key: string, value: unknown) => {
     updateConfigField(key, value)
+    if (key === 'launch_at_login' && typeof value === 'boolean') {
+      app.setLoginItemSettings({ openAtLogin: value })
+    }
     return true
   })
 

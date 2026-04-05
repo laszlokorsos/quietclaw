@@ -7,6 +7,7 @@ retain_audio = false               # Audio files are large; enable only if you n
 audio_format = "opus"              # opus (tiny, lossy) | flac (lossless) | wav (uncompressed)
 audio_retention_days = 30          # Only applies when retain_audio = true
 markdown_output = true             # Generate human-readable .md files alongside JSON
+launch_at_login = true             # Start QuietClaw automatically when you log in
 
 [consent]
 auto_message_enabled = false       # Auto-send a consent message in meeting chat

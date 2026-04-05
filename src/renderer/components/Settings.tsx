@@ -29,6 +29,7 @@ export default function Settings({
   const [dataDir, setDataDir] = useState('')
   const [showDeepgramKey, setShowDeepgramKey] = useState(false)
   const [showAnthropicKey, setShowAnthropicKey] = useState(false)
+  const [launchAtLogin, setLaunchAtLogin] = useState(true)
   const { addToast } = useToast()
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function Settings({
     setCalendarAccounts(await api.calendar.accounts())
     const config = await api.config.get() as any
     setDataDir(config?.general?.data_dir ?? '')
+    setLaunchAtLogin(config?.general?.launch_at_login ?? true)
   }
 
   async function saveDeepgramKey() {
@@ -289,6 +291,29 @@ export default function Settings({
       <section className="mb-8">
         <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">General</h3>
         <div className="bg-surface-secondary rounded-2xl divide-y divide-border/40">
+
+          {/* Launch at login */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-medium text-text-primary">Launch at login</span>
+                <p className="text-xs text-text-muted mt-0.5">Start automatically when you log in</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={launchAtLogin}
+                onClick={async () => {
+                  const next = !launchAtLogin
+                  setLaunchAtLogin(next)
+                  if (api) await api.config.setField('launch_at_login', next)
+                }}
+                className={`relative w-10 h-6 rounded-full transition-colors ${launchAtLogin ? 'bg-accent' : 'bg-border'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${launchAtLogin ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+            </div>
+          </div>
 
           {/* Appearance */}
           <div className="px-5 py-4">
