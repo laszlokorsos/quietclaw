@@ -180,21 +180,46 @@ export function setupIpcHandlers(
   })
 
   // Meetings
+  // Derive a human-friendly label from a calendar account email.
+  // Consumer domains → "Personal", corporate domains → humanized company name.
+  const PERSONAL_DOMAINS = new Set([
+    'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
+    'yahoo.com', 'icloud.com', 'me.com', 'mac.com', 'protonmail.com', 'proton.me',
+    'aol.com', 'zoho.com', 'fastmail.com', 'tutanota.com', 'hey.com'
+  ])
+
+  function calendarLabel(email: string): string {
+    const domain = email.split('@')[1]?.toLowerCase()
+    if (!domain) return email
+    if (PERSONAL_DOMAINS.has(domain)) return 'Personal'
+    // Corporate domain: strip TLD, split on separators, title-case
+    const name = domain.split('.').slice(0, -1).join(' ')
+    return name
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+
   // Transform DB rows (snake_case, raw types) to renderer format (camelCase, proper types)
-  const formatRows = (rows: Array<Record<string, unknown>>) =>
-    rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      slug: r.slug,
-      startTime: r.start_time,
-      endTime: r.end_time,
-      duration: r.duration,
-      date: r.date,
-      speakers: typeof r.speakers === 'string' ? JSON.parse(r.speakers as string) : r.speakers,
-      summarized: r.summarized === 1,
-      sttProvider: r.stt_provider,
-      actionCount: (r.action_count as number) ?? 0
-    }))
+  const formatRows = (rows: Array<Record<string, unknown>>) => {
+    return rows.map((r) => {
+      const calendarAccount = (r.calendar_account as string) ?? null
+      return {
+        id: r.id,
+        title: r.title,
+        slug: r.slug,
+        startTime: r.start_time,
+        endTime: r.end_time,
+        duration: r.duration,
+        date: r.date,
+        speakers: typeof r.speakers === 'string' ? JSON.parse(r.speakers as string) : r.speakers,
+        summarized: r.summarized === 1,
+        sttProvider: r.stt_provider,
+        actionCount: (r.action_count as number) ?? 0,
+        calendarAccount,
+        calendarAccountLabel: calendarAccount ? calendarLabel(calendarAccount) : null
+      }
+    })
+  }
 
   ipcMain.handle('meetings:list', (_event, limit?: number, offset?: number) => {
     return formatRows(listMeetings(limit, offset))

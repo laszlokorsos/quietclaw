@@ -22,6 +22,8 @@ interface Meeting {
   speakers: Array<{ name: string }>
   summarized: boolean
   actionCount: number
+  calendarAccount: string | null
+  calendarAccountLabel: string | null
 }
 
 interface MeetingLink {
@@ -31,6 +33,7 @@ interface MeetingLink {
 
 interface CalendarEvent {
   eventId: string
+  calendarAccountEmail?: string
   title: string
   startTime: string
   endTime: string
@@ -38,6 +41,21 @@ interface CalendarEvent {
   platform?: string
   meetingLink?: string
   meetingLinks?: MeetingLink[]
+}
+
+/** Derive a human-friendly label from a calendar account email */
+const PERSONAL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
+  'yahoo.com', 'icloud.com', 'me.com', 'mac.com', 'protonmail.com', 'proton.me',
+  'aol.com', 'zoho.com', 'fastmail.com', 'tutanota.com', 'hey.com'
+])
+
+function calendarLabel(email: string): string {
+  const domain = email.split('@')[1]?.toLowerCase()
+  if (!domain) return email
+  if (PERSONAL_DOMAINS.has(domain)) return 'Personal'
+  const name = domain.split('.').slice(0, -1).join(' ')
+  return name.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 /** Sanitize user input for FTS5 MATCH: strip operators, append * for prefix matching */
@@ -206,6 +224,7 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
   const [loadingMeetings, setLoadingMeetings] = useState(true)
   const [loadingCalendar, setLoadingCalendar] = useState(true)
   const [hasDeepgramKey, setHasDeepgramKey] = useState(false)
+  const [calendarAccountCount, setCalendarAccountCount] = useState(0)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { addToast } = useToast()
@@ -224,6 +243,9 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
     loadCalendar()
     if (api) {
       api.secrets.hasDeepgramKey().then(setHasDeepgramKey)
+      api.calendar.accounts().then((accts: Array<{ email: string }>) => {
+        setCalendarAccountCount(accts.length)
+      }).catch(() => {})
       const unsubMeeting = api.on('meeting-processed', () => { loadMeetings(); loadCalendar() })
       const unsubCalendar = api.on('calendar-synced', () => loadCalendar())
       return () => { unsubMeeting(); unsubCalendar() }
@@ -419,6 +441,11 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
                             {e.attendees.length > 0 && (
                               <> &middot; {e.attendees.filter(a => !a.email?.includes('resource')).map(a => a.name || a.email.split('@')[0]).slice(0, 4).join(', ')}{e.attendees.length > 4 ? ` +${e.attendees.length - 4}` : ''}</>
                             )}
+                            {calendarAccountCount > 1 && e.calendarAccountEmail && (
+                              <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted" title={e.calendarAccountEmail}>
+                                {calendarLabel(e.calendarAccountEmail)}
+                              </span>
+                            )}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 mt-0.5">
@@ -503,6 +530,11 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
                           {formatTime(m.startTime)} &middot; {formatDuration(m.duration)}
                           {m.speakers.length > 0 && (
                             <> &middot; {m.speakers.map((s) => s.name).join(', ')}</>
+                          )}
+                          {calendarAccountCount > 1 && m.calendarAccountLabel && (
+                            <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted" title={m.calendarAccount ?? undefined}>
+                              {m.calendarAccountLabel}
+                            </span>
                           )}
                         </p>
                       </div>

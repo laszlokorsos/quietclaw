@@ -4,49 +4,37 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 
-> The silent claw that listens.
+**Give your agents the context from every meeting.**
 
-QuietClaw is an open-source macOS app that silently captures, transcribes, and summarizes your video calls. No bot joins the meeting. No virtual audio device. Just quiet, local intelligence — exposed as structured data for any agent or workflow.
+Your AI agents are blind to what happens in meetings — decisions, action items, context that could drive automation. QuietClaw silently captures your video calls, transcribes them with speaker attribution, and writes structured data that any agent or workflow can consume. No bot joins. No virtual audio device. Just quiet, local intelligence.
+
+Think of it as [Granola](https://granola.ai) but open-source and built for agents.
 
 ## Why QuietClaw
 
-- **No meeting bot** — captures audio directly via macOS Core Audio Taps, invisible to other participants
-- **Local-first** — all data stays on your machine in plain JSON and Markdown files
-- **Agentic-native** — local REST API + filesystem output designed for Claude Code, n8n, or any automation tool
-- **Open-source** — Apache 2.0, fully extensible, provider-agnostic
-
-## Recording & Consent
-
-QuietClaw records audio from your meetings. Recording laws vary by jurisdiction — some locations require only one party's consent, while others require the consent of all participants. **It is your responsibility to understand and comply with the laws that apply to you and the other participants in your meetings.**
-
-## Features
-
-- **Silent audio capture** via Core Audio Taps (mic + system audio, no virtual device)
-- **Auto-detection** of Google Meet, Zoom, and Teams calls via window title and mic activity scanning
-- **Real-time transcription** via Deepgram with multi-speaker diarization
-- **Speaker identification** — mic audio is always "you"; system audio speakers separated by Deepgram's diarization; 2-person calls are fully named via calendar attendees; 3+ person calls support manual speaker mapping with representative quotes and calendar suggestions
-- **Google Calendar integration** — multi-account OAuth, automatic event matching, attendee extraction
-- **Optional AI summarization** — Claude Haiku by default (executive summary, topics, decisions, action items)
-- **Structured output** — JSON + Markdown files per meeting, indexed in SQLite
-- **Local REST API** — query meetings, transcripts, summaries from any tool
-- **Crash recovery** — orphaned recordings from interrupted sessions are automatically recovered on next launch
-- **Platform join buttons** — upcoming meetings show clickable Google Meet / Zoom / Teams buttons with real brand icons
-- **Obsidian-compatible output** — YAML frontmatter, wikilinks for speaker names, and daily index files make meetings work seamlessly in Obsidian, Logseq, or any markdown knowledge graph
+| | |
+|---|---|
+| **Structured JSON output** | Not just a pretty transcript UI — machine-readable data agents can consume |
+| **Local REST API** | Claude Code, OpenClaw, n8n, or anything else can query meetings programmatically |
+| **Open source** | Apache 2.0, no vendor lock-in, extend it however you want |
+| **No meeting bot** | Captures audio directly via macOS Core Audio Taps, invisible to other participants |
+| **Real-time transcription** | Deepgram gives you streaming STT with built-in speaker diarization — bring your own API key, pay pennies per minute |
+| **Optional AI summarization** | Claude extracts executive summaries, decisions, and action items — or skip it and let your agents process the raw transcript however they want |
 
 ## How It Works
 
 ```
-Call detected (window title + mic activity polling)
+Call detected (or started manually)
   → Core Audio Taps captures mic + system audio as separate streams
-  → Streams interleaved into stereo PCM (left=mic, right=system)
-  → Sent in real-time to Deepgram via WebSocket
-  → Speaker diarization separates remote participants
+  → Stereo PCM streamed in real-time to Deepgram
+  → Speaker diarization separates participants
   → Calendar matcher names speakers from attendee list
-Call ends (window closed or mic deactivated)
-  → STT finalized, transcript assembled
-  → Optional: Claude Haiku summarization
+Call ends
+  → Transcript assembled with speaker attribution
+  → Optional: Claude summarization → summary + action items
   → Files written to ~/.quietclaw/meetings/YYYY-MM-DD/{slug}/
   → Indexed in SQLite, available via REST API
+  → Your agents can now act on it
 ```
 
 ## Quick Start
@@ -73,7 +61,7 @@ On first launch, macOS will prompt for **Screen Recording** permission (required
 
 | Key | Required | Purpose |
 |-----|----------|---------|
-| **Deepgram** | Yes | Speech-to-text (~$0.0043/min) |
+| **Deepgram** | Yes | Real-time speech-to-text (~$0.0043/min) |
 | **Anthropic** | No | AI summarization (Claude Haiku) |
 
 Add keys via the Settings panel in the app, or set `DEEPGRAM_API_KEY` / `ANTHROPIC_API_KEY` environment variables for development.
@@ -81,6 +69,99 @@ Add keys via the Settings panel in the app, or set `DEEPGRAM_API_KEY` / `ANTHROP
 ### Calendar
 
 Click **Settings > Google Calendar > Connect Account** to add one or more Google accounts. The app handles OAuth automatically — no GCP setup required from you.
+
+## Agent Integration
+
+This is what QuietClaw is built for. After each meeting, structured data is available via the REST API and on the filesystem:
+
+```bash
+# Check if QuietClaw is running
+curl http://localhost:19832/api/v1/health
+
+# Today's meetings
+curl http://localhost:19832/api/v1/meetings/today | jq '.meetings[].title'
+
+# Get a transcript
+curl http://localhost:19832/api/v1/meetings/{id}/transcript | jq '.segments[:3]'
+
+# Get action items
+curl http://localhost:19832/api/v1/meetings/{id}/actions
+
+# Trigger summarization on an existing transcript
+curl -X POST http://localhost:19832/api/v1/meetings/{id}/summarize
+```
+
+Or read the files directly:
+
+```bash
+cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json | jq '.'
+```
+
+### Recommended Agentic Workflow
+
+```
+1. Poll /api/v1/meetings/today (or watch ~/.quietclaw/meetings/)
+2. Read transcript.json for the raw conversation
+3. Check actions.json for items marked "agent_executable": true
+4. Present proposed actions to the user
+5. Execute approved actions
+6. Update status via POST /api/v1/meetings/:id/actions/:aid
+```
+
+## API Reference
+
+The local API runs on `http://localhost:19832` when QuietClaw is running.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/health` | Health check |
+| `GET` | `/api/v1/meetings` | List meetings (paginated: `?limit=50&offset=0`) |
+| `GET` | `/api/v1/meetings/today` | Today's meetings |
+| `GET` | `/api/v1/meetings/search?q=...` | Full-text search |
+| `GET` | `/api/v1/meetings/:id` | Full meeting data |
+| `GET` | `/api/v1/meetings/:id/transcript` | Transcript only |
+| `GET` | `/api/v1/meetings/:id/summary` | Summary (if available) |
+| `GET` | `/api/v1/meetings/:id/actions` | Action items |
+| `POST` | `/api/v1/meetings/:id/summarize` | Trigger summarization |
+| `POST` | `/api/v1/meetings/:id/actions/:aid` | Update action status |
+| `DELETE` | `/api/v1/meetings/:id` | Delete meeting and files |
+| `GET` | `/api/v1/openapi.json` | OpenAPI 3.0 specification |
+
+## Output Format
+
+Each meeting produces a directory under `~/.quietclaw/meetings/`:
+
+```
+2026-04-04/
+  index.md                # Daily index with links to all meetings
+  weekly-standup-a1b2/
+    metadata.json         # Meeting metadata, speakers, calendar event
+    transcript.json       # Timestamped, speaker-attributed segments
+    transcript.md         # Human-readable transcript with YAML frontmatter
+    summary.json          # Executive summary, topics, decisions (if summarized)
+    summary.md            # Human-readable summary with YAML frontmatter
+    actions.json          # Action items with assignees and priority
+```
+
+Files are plain JSON and Markdown — readable by any tool, diffable in git, and queryable with `jq`. See [`examples/`](examples/) for complete sample output.
+
+### Obsidian & Knowledge Graph Compatible
+
+All markdown files include YAML frontmatter with structured metadata. Speaker names are rendered as wikilinks (`[[Jordan]]`). Point an Obsidian vault at `~/.quietclaw/meetings/` and your meetings become part of your knowledge graph — Dataview queries, backlinks, graph view all work out of the box.
+
+## Features
+
+- **Silent audio capture** via Core Audio Taps (mic + system audio, no virtual device)
+- **Auto-detection** of Google Meet, Zoom, and Teams calls via window title and mic activity
+- **Real-time transcription** via Deepgram with multi-speaker diarization
+- **Speaker identification** — mic audio is always "you"; system audio speakers separated by diarization; 2-person calls fully named via calendar; 3+ person calls support manual speaker mapping
+- **Google Calendar integration** — multi-account OAuth, automatic event matching, attendee extraction
+- **Optional AI summarization** — executive summary, topics, decisions, action items
+- **Structured output** — JSON + Markdown files per meeting, indexed in SQLite
+- **Local REST API** — query meetings, transcripts, summaries from any tool
+- **Crash recovery** — orphaned recordings automatically recovered on next launch
+- **Platform join buttons** — upcoming meetings show clickable Google Meet / Zoom / Teams buttons
+- **Obsidian-compatible** — YAML frontmatter, wikilinks, daily index files
 
 ## Configuration
 
@@ -107,132 +188,20 @@ model = "claude-haiku-4-5-20251001"
 port = 19832                          # Local REST API port
 ```
 
-See [`resources/default_config.toml`](resources/default_config.toml) for all options including consent messaging, audio retention, and notification preferences.
-
-## API Reference
-
-The local API runs on `http://localhost:19832` when QuietClaw is running.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/health` | Health check |
-| `GET` | `/api/v1/meetings` | List meetings (paginated: `?limit=50&offset=0`) |
-| `GET` | `/api/v1/meetings/today` | Today's meetings |
-| `GET` | `/api/v1/meetings/search?q=...` | Full-text search |
-| `GET` | `/api/v1/meetings/:id` | Full meeting data |
-| `GET` | `/api/v1/meetings/:id/transcript` | Transcript only |
-| `GET` | `/api/v1/meetings/:id/summary` | Summary (if available) |
-| `GET` | `/api/v1/meetings/:id/actions` | Action items |
-| `POST` | `/api/v1/meetings/:id/summarize` | Trigger summarization |
-| `POST` | `/api/v1/meetings/:id/actions/:aid` | Update action status |
-| `DELETE` | `/api/v1/meetings/:id` | Delete meeting and files |
-| `GET` | `/api/v1/openapi.json` | OpenAPI 3.0 specification |
-
-Full schema documentation is available at the OpenAPI endpoint: `curl http://localhost:19832/api/v1/openapi.json`
-
-### Example
-
-```bash
-# Today's meetings
-curl http://localhost:19832/api/v1/meetings/today | jq '.meetings[].title'
-
-# Get a transcript
-curl http://localhost:19832/api/v1/meetings/{id}/transcript | jq '.segments[:3]'
-
-# Trigger summarization on an existing transcript
-curl -X POST http://localhost:19832/api/v1/meetings/{id}/summarize
-```
-
-## Output Format
-
-Each meeting produces a directory under `~/.quietclaw/meetings/`:
-
-```
-2026-04-04/
-  index.md                # Auto-generated daily index with links to all meetings
-  weekly-standup-a1b2/
-    metadata.json         # Meeting metadata, speakers, calendar event
-    transcript.json       # Timestamped, speaker-attributed segments
-    transcript.md         # Human-readable transcript with YAML frontmatter
-    summary.json          # Executive summary, topics, decisions (if summarized)
-    summary.md            # Human-readable summary with YAML frontmatter
-    actions.json          # Action items with assignees and priority
-```
-
-Files are plain JSON and Markdown — readable by any tool, diffable in git, and queryable with `jq`. See [`examples/`](examples/) for complete sample output files.
-
-### Obsidian & Knowledge Graph Compatible
-
-All markdown files include **YAML frontmatter** with structured metadata:
-
-```yaml
----
-type: meeting
-date: "2026-04-04"
-title: "Weekly Standup"
-participants: ["Alex", "Jordan", "Sam"]
-platform: "google-meet"
-duration: "32m"
-summarized: true
----
-```
-
-Speaker names in transcripts and summaries are rendered as **wikilinks** — `[[Jordan]]` instead of plain text. If you point an Obsidian vault (or any markdown-based knowledge tool) at `~/.quietclaw/meetings/`, your meetings become part of your knowledge graph automatically:
-
-- **Dataview queries** like "list all meetings with Jordan in the last week" work out of the box
-- **Backlinks** from a person's note show every meeting they participated in
-- **Daily indexes** (`index.md` per date folder) give agents and humans a quick overview without scanning every directory
-- **Graph view** visualizes relationships between meetings, people, and topics
-
-QuietClaw is the capture layer. Your knowledge tool — Obsidian, Logseq, or even a plain `grep` — is the consumption layer. The files are the interface.
-
-## Agent Integration
-
-QuietClaw is designed to feed agents. Recommended workflow:
-
-```
-1. Poll /api/v1/meetings/today (or watch ~/.quietclaw/meetings/)
-2. Read transcript.json for the raw conversation
-3. Check actions.json for items marked "agent_executable": true
-4. Present proposed actions to the user
-5. Execute approved actions
-6. Update status via POST /api/v1/meetings/:id/actions/:aid
-```
-
-Or just read the files directly:
-
-```bash
-cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json | jq '.'
-```
-
-## What's Working (v0.1)
-
-- [x] macOS Core Audio Taps capture (mic + system, no virtual device)
-- [x] Auto-detection of Google Meet, Zoom, Teams calls
-- [x] Real-time Deepgram STT with diarization
-- [x] Google Calendar OAuth (multi-account)
-- [x] Speaker identification (mic=you, 2-person=fully named via calendar, 3+=manual mapping)
-- [x] Manual speaker mapping — identify Speaker A/B/C with representative quotes and calendar suggestions
-- [x] Claude Haiku summarization (optional)
-- [x] Crash recovery for orphaned recordings
-- [x] Local REST API with full-text search
-- [x] Menu bar tray app with recording status
-- [x] Meeting list UI with live search, join buttons, and platform icons
-- [x] Keyboard shortcuts, toast notifications, loading skeletons, copyable transcripts
-- [x] 58 passing tests, CI/CD via GitHub Actions
+See [`resources/default_config.toml`](resources/default_config.toml) for all options.
 
 ## Roadmap
 
 ### Phase 2
-- **Contacts & speaker consistency** — autocomplete from past speaker names, person card in search, consistent wikilinks across meetings
+- **Contacts & speaker consistency** — autocomplete from past names, person card, consistent wikilinks
 - **Additional STT providers** — AssemblyAI, OpenAI Whisper API, local whisper.cpp
 - **Additional summarizers** — OpenAI GPT, Ollama (local)
 - **Real-time transcript display** during calls
-- **MCP server** — expose QuietClaw as a Model Context Protocol resource for Claude Desktop/Code
+- **MCP server** — expose QuietClaw as a Model Context Protocol resource
 - **Windows support** — WASAPI loopback capture (architecture is already abstracted)
 
 ### Phase 3
-- **Speaker recognition** — automatic speaker identification that learns from manual mappings over time
+- **Speaker recognition** — automatic identification that learns from manual mappings
 - **Cross-meeting intelligence** — "What has X discussed across the last 10 meetings?"
 - **Plugin system** for custom post-processing
 
@@ -240,12 +209,12 @@ cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json | jq '.'
 
 ```bash
 pnpm dev          # Dev mode with hot reload
-pnpm test         # Run vitest (58 tests)
+pnpm test         # Run vitest
 pnpm typecheck    # TypeScript strict mode check
 pnpm build        # Full production build (vite + electron-builder)
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for the full development guide — architecture, coding standards, how to add new providers, and detailed implementation notes.
+See [`CLAUDE.md`](CLAUDE.md) for the full development guide — architecture, coding standards, how to add new providers.
 
 ## Tech Stack
 
@@ -264,9 +233,13 @@ See [`CLAUDE.md`](CLAUDE.md) for the full development guide — architecture, co
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding standards, and the PR process.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and the PR process.
 
-For security vulnerabilities, please see [SECURITY.md](SECURITY.md) — do not open a public issue.
+For security vulnerabilities, see [SECURITY.md](SECURITY.md) — do not open a public issue.
+
+## Recording & Consent
+
+QuietClaw records audio from your meetings. Recording laws vary by jurisdiction — some require only one party's consent, others require all participants. **It is your responsibility to understand and comply with the recording laws that apply to you.**
 
 ## License
 

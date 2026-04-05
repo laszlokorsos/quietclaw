@@ -100,6 +100,14 @@ export function initDatabase(): void {
     log.info('[DB] Added action_count column')
   }
 
+  // Migrate: add calendar_account column if missing
+  try {
+    db.prepare('SELECT calendar_account FROM meetings LIMIT 1').get()
+  } catch {
+    db.exec('ALTER TABLE meetings ADD COLUMN calendar_account TEXT DEFAULT NULL')
+    log.info('[DB] Added calendar_account column')
+  }
+
   // Migrate: if FTS table was created as contentless, recreate and re-index
   try {
     const ftsInfo = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'meetings_fts'").get() as { sql: string } | undefined
@@ -173,6 +181,34 @@ export function initDatabase(): void {
     backfill()
   }
 
+  // Backfill calendar_account from metadata.json on disk
+  const noCalendarRows = db.prepare(
+    'SELECT id, meeting_dir FROM meetings WHERE calendar_account IS NULL'
+  ).all() as Array<{ id: string; meeting_dir: string }>
+  if (noCalendarRows.length > 0) {
+    const updateCalendar = db.prepare('UPDATE meetings SET calendar_account = ? WHERE id = ?')
+    const backfillCalendar = db.transaction(() => {
+      let filled = 0
+      for (const row of noCalendarRows) {
+        try {
+          const metaPath = path.join(row.meeting_dir, 'metadata.json')
+          if (fs.existsSync(metaPath)) {
+            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+            const email = meta.calendarEvent?.calendarAccountEmail
+            if (email) {
+              updateCalendar.run(email, row.id)
+              filled++
+            }
+          }
+        } catch {
+          // Skip unreadable metadata files
+        }
+      }
+      if (filled > 0) log.info(`[DB] Backfilled calendar_account for ${filled} meetings`)
+    })
+    backfillCalendar()
+  }
+
   log.info(`[DB] Database initialized at ${DB_PATH}`)
 }
 
@@ -206,11 +242,13 @@ export function indexMeeting(
   const speakersJson = JSON.stringify(metadata.speakers)
   const speakersText = metadata.speakers.map((s) => s.name).join(' ')
 
+  const calendarAccount = metadata.calendarEvent?.calendarAccountEmail ?? null
+
   const insertMeeting = d.prepare(`
     INSERT OR REPLACE INTO meetings
-      (id, title, slug, start_time, end_time, duration, date, speakers, summarized, stt_provider, meeting_dir)
+      (id, title, slug, start_time, end_time, duration, date, speakers, summarized, stt_provider, meeting_dir, calendar_account)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   const deleteFts = d.prepare('DELETE FROM meetings_fts WHERE id = ?')
@@ -231,7 +269,8 @@ export function indexMeeting(
       speakersJson,
       metadata.summarized ? 1 : 0,
       metadata.sttProvider,
-      meetingDir
+      meetingDir,
+      calendarAccount
     )
 
     deleteFts.run(metadata.id)
