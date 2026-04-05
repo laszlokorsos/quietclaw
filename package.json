@@ -16,6 +16,19 @@
     "type": "git",
     "url": "https://github.com/laszlokorsos/quietclaw.git"
   },
+  "keywords": [
+    "meeting-recording",
+    "transcription",
+    "speech-to-text",
+    "electron",
+    "macos",
+    "deepgram",
+    "ai-summarization",
+    "claude",
+    "agentic",
+    "meeting-intelligence",
+    "core-audio"
+  ],
   "private": true,
   "scripts": {
     "rebuild:sqlite": "node -e \"const v = require('./node_modules/electron/package.json').version; const {execSync} = require('child_process'); execSync('cd ' + require.resolve('better-sqlite3/package.json').replace('/package.json','') + ' && npx prebuild-install --runtime electron --target ' + v + ' --arch ' + process.arch + ' --tag-prefix v', {stdio:'inherit'})\"",

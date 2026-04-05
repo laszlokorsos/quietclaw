@@ -1,5 +1,9 @@
 # QuietClaw
 
+[![CI](https://github.com/laszlokorsos/quietclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/laszlokorsos/quietclaw/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
+
 > The silent claw that listens.
 
 QuietClaw is an open-source macOS app that silently captures, transcribes, and summarizes your video calls. No bot joins the meeting. No virtual audio device. Just quiet, local intelligence — exposed as structured data for any agent or workflow.
@@ -257,6 +261,12 @@ See [`CLAUDE.md`](CLAUDE.md) for the full development guide — architecture, co
 | API | Express.js (embedded in main process) |
 | Config | TOML (`~/.quietclaw/config.toml`) |
 | Secrets | Electron safeStorage (OS-level encryption) |
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding standards, and the PR process.
+
+For security vulnerabilities, please see [SECURITY.md](SECURITY.md) — do not open a public issue.
 
 ## License
 
