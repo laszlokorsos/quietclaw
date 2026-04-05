@@ -12,7 +12,7 @@
  *   GET  /meetings/:id/actions          — Meeting action items
  *   POST /meetings/:id/summarize        — Trigger summarization
  *   POST /meetings/:id/actions/:aid     — Update action item status
- *   DELETE /meetings/:id                ��� Delete a meeting and its files
+ *   DELETE /meetings/:id                — Delete a meeting and its files
  *   GET  /config                        — Current config (safe fields only)
  *   GET  /openapi.json                  — OpenAPI 3.0 specification
  */
@@ -29,7 +29,8 @@ import {
   searchMeetings,
   countMeetings,
   getMeetingDir,
-  deleteMeetingIndex
+  deleteMeetingIndex,
+  markSummarized
 } from '../storage/db'
 import {
   readMeetingMetadata,
@@ -39,7 +40,6 @@ import {
   writeSummaryFiles,
   deleteMeetingFiles
 } from '../storage/files'
-import { markSummarized } from '../storage/db'
 import { AnthropicSummarizer } from '../pipeline/summarizer/anthropic'
 import { notifyMeetingSummarized } from './ws'
 import { toLocalDateString } from '../storage/files'

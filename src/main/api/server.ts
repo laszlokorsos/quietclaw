@@ -13,6 +13,7 @@ import log from 'electron-log/main'
 import { loadConfig } from '../config/settings'
 import { getApiAuthToken } from '../config/secrets'
 import { createRoutes } from './routes'
+import { ErrorCode } from './errors'
 import { attachWebSocket, closeWebSocket } from './ws'
 
 let server: Server | null = null
@@ -60,7 +61,7 @@ export function startApiServer(): void {
       try {
         const expected = getApiAuthToken()
         if (token !== expected) {
-          res.status(401).json({ error: { code: 'INVALID_AUTH_TOKEN', message: 'Invalid auth token' } })
+          res.status(401).json({ error: { code: ErrorCode.INVALID_AUTH_TOKEN, message: 'Invalid auth token' } })
           return
         }
       } catch {
@@ -83,7 +84,7 @@ export function startApiServer(): void {
       _next: express.NextFunction
     ) => {
       log.error('[API] Unhandled error:', err)
-      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } })
+      res.status(500).json({ error: { code: ErrorCode.INTERNAL_ERROR, message: 'Internal server error' } })
     }
   )
 

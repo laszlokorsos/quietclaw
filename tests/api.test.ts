@@ -195,6 +195,7 @@ describe('API Routes', () => {
     it('returns 404 when no actions exist', async () => {
       const res = await request(app).get('/api/v1/meetings/meet-1/actions')
       expect(res.status).toBe(404)
+      expect(res.body.error.code).toBe('ACTIONS_NOT_FOUND')
     })
   })
 
