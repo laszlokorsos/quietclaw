@@ -11,11 +11,7 @@ Your AI agents are blind to what happens in meetings — decisions, action items
 Think of it as [Granola](https://granola.ai) but open-source and built for agents.
 
 <p align="center">
-  <code>[ screenshot: meeting list with transcripts and calendar tags ]</code>
-</p>
-
-<p align="center">
-  <code>[ demo: call detected → real-time transcript → summary with action items ]</code>
+  <img src="resources/screenshots/meeting-list.png" alt="QuietClaw meeting list with transcripts and calendar tags" width="720" />
 </p>
 
 ## Why QuietClaw

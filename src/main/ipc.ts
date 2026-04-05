@@ -191,12 +191,8 @@ export function setupIpcHandlers(
   function calendarLabel(email: string): string {
     const domain = email.split('@')[1]?.toLowerCase()
     if (!domain) return email
-    if (PERSONAL_DOMAINS.has(domain)) return 'Personal'
-    // Corporate domain: strip TLD, split on separators, title-case
-    const name = domain.split('.').slice(0, -1).join(' ')
-    return name
-      .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase())
+    if (PERSONAL_DOMAINS.has(domain)) return 'personal'
+    return domain
   }
 
   // Transform DB rows (snake_case, raw types) to renderer format (camelCase, proper types)

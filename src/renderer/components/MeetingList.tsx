@@ -53,9 +53,8 @@ const PERSONAL_DOMAINS = new Set([
 function calendarLabel(email: string): string {
   const domain = email.split('@')[1]?.toLowerCase()
   if (!domain) return email
-  if (PERSONAL_DOMAINS.has(domain)) return 'Personal'
-  const name = domain.split('.').slice(0, -1).join(' ')
-  return name.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  if (PERSONAL_DOMAINS.has(domain)) return 'personal'
+  return domain
 }
 
 /** Sanitize user input for FTS5 MATCH: strip operators, append * for prefix matching */
@@ -492,11 +491,11 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
         </div>
       ) : meetings.length > 0 ? (
         Object.entries(grouped).map(([date, items]) => (
-          <div key={date} className="mb-6">
-            <h3 className="text-xs font-medium text-text-secondary mb-2">
+          <div key={date} className="mb-4">
+            <h3 className="text-xs font-medium text-text-secondary mb-1.5">
               {formatDate(items[0].startTime)}
             </h3>
-            <div className="space-y-0.5">
+            <div className="space-y-0">
               {items.map((m) => {
                 const isUnscheduled = m.title.startsWith('Unscheduled call')
                 const displayTitle = isUnscheduled ? 'Unscheduled recording' : m.title
@@ -504,7 +503,7 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
                   <button
                     key={m.id}
                     onClick={() => onSelect(m.id)}
-                    className="w-full text-left px-4 py-3 rounded-xl hover:bg-surface-secondary cursor-pointer transition-colors group"
+                    className="w-full text-left px-4 py-2 rounded-xl hover:bg-surface-secondary cursor-pointer transition-colors group"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0 flex-1">
