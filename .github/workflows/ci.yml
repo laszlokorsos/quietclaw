@@ -25,8 +25,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Rebuild better-sqlite3 for system Node
+        run: |
+          cd node_modules/better-sqlite3
+          npx prebuild-install --tag-prefix v || npx node-gyp rebuild
+          cd ../..
+
+      - name: Type check
+        run: npx tsc --noEmit
+
       - name: Run tests
-        run: pnpm test
+        run: npx vitest run
 
       - name: Build (vite only)
         run: pnpm run build:vite

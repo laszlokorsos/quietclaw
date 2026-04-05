@@ -306,7 +306,14 @@ export const openApiSpec = {
       Error: {
         type: 'object',
         properties: {
-          error: { type: 'string', description: 'Human-readable error message' }
+          error: {
+            type: 'object',
+            properties: {
+              code: { type: 'string', description: 'Machine-readable error code (e.g., MEETING_NOT_FOUND, SUMMARIZER_NOT_CONFIGURED)', example: 'MEETING_NOT_FOUND' },
+              message: { type: 'string', description: 'Human-readable error message', example: 'Meeting not found' }
+            },
+            required: ['code', 'message']
+          }
         },
         required: ['error']
       },

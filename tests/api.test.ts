@@ -162,7 +162,8 @@ describe('API Routes', () => {
     it('returns 404 for unknown meeting', async () => {
       const res = await request(app).get('/api/v1/meetings/nonexistent')
       expect(res.status).toBe(404)
-      expect(res.body.error).toBe('Meeting not found')
+      expect(res.body.error.code).toBe('MEETING_NOT_FOUND')
+      expect(res.body.error.message).toBe('Meeting not found')
     })
   })
 
@@ -178,6 +179,7 @@ describe('API Routes', () => {
     it('returns 404 for unknown meeting', async () => {
       const res = await request(app).get('/api/v1/meetings/nonexistent/transcript')
       expect(res.status).toBe(404)
+      expect(res.body.error.code).toBe('MEETING_NOT_FOUND')
     })
   })
 
@@ -185,7 +187,7 @@ describe('API Routes', () => {
     it('returns 404 when no summary exists', async () => {
       const res = await request(app).get('/api/v1/meetings/meet-1/summary')
       expect(res.status).toBe(404)
-      expect(res.body.error).toContain('not found')
+      expect(res.body.error.code).toBe('SUMMARY_NOT_FOUND')
     })
   })
 
@@ -200,7 +202,7 @@ describe('API Routes', () => {
     it('returns 400 when no query provided', async () => {
       const res = await request(app).get('/api/v1/meetings/search')
       expect(res.status).toBe(400)
-      expect(res.body.error).toContain('Missing search query')
+      expect(res.body.error.code).toBe('MISSING_SEARCH_QUERY')
     })
 
     it('searches with query parameter', async () => {
@@ -223,12 +225,13 @@ describe('API Routes', () => {
     it('returns 404 for unknown meeting', async () => {
       const res = await request(app).post('/api/v1/meetings/nonexistent/summarize')
       expect(res.status).toBe(404)
+      expect(res.body.error.code).toBe('MEETING_NOT_FOUND')
     })
 
     it('returns 400 when API key not configured', async () => {
       const res = await request(app).post('/api/v1/meetings/meet-1/summarize')
       expect(res.status).toBe(400)
-      expect(res.body.error).toContain('API key not configured')
+      expect(res.body.error.code).toBe('SUMMARIZER_NOT_CONFIGURED')
     })
   })
 

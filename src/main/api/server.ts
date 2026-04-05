@@ -60,7 +60,7 @@ export function startApiServer(): void {
       try {
         const expected = getApiAuthToken()
         if (token !== expected) {
-          res.status(401).json({ error: 'Invalid auth token' })
+          res.status(401).json({ error: { code: 'INVALID_AUTH_TOKEN', message: 'Invalid auth token' } })
           return
         }
       } catch {
@@ -83,7 +83,7 @@ export function startApiServer(): void {
       _next: express.NextFunction
     ) => {
       log.error('[API] Unhandled error:', err)
-      res.status(500).json({ error: 'Internal server error' })
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } })
     }
   )
 

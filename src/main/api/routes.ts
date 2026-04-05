@@ -12,7 +12,7 @@
  *   GET  /meetings/:id/actions          — Meeting action items
  *   POST /meetings/:id/summarize        — Trigger summarization
  *   POST /meetings/:id/actions/:aid     — Update action item status
- *   DELETE /meetings/:id                — Delete a meeting and its files
+ *   DELETE /meetings/:id                ��� Delete a meeting and its files
  *   GET  /config                        — Current config (safe fields only)
  *   GET  /openapi.json                  — OpenAPI 3.0 specification
  */
@@ -20,6 +20,7 @@
 import { Router } from 'express'
 import log from 'electron-log/main'
 import { openApiSpec } from './openapi'
+import { sendError, sendInternalError, ErrorCode } from './errors'
 import { loadConfig } from '../config/settings'
 import {
   listMeetings,
@@ -75,8 +76,7 @@ export function createRoutes(): Router {
         offset
       })
     } catch (err) {
-      log.error('[API] GET /meetings error:', err)
-      res.status(500).json({ error: 'Failed to list meetings' })
+      sendInternalError(res, ErrorCode.LIST_MEETINGS_FAILED, 'Failed to list meetings', err)
     }
   })
 
@@ -89,8 +89,7 @@ export function createRoutes(): Router {
         date: toLocalDateString(new Date())
       })
     } catch (err) {
-      log.error('[API] GET /meetings/today error:', err)
-      res.status(500).json({ error: 'Failed to get today\'s meetings' })
+      sendInternalError(res, ErrorCode.GET_TODAY_FAILED, 'Failed to get today\'s meetings', err)
     }
   })
 
@@ -99,7 +98,7 @@ export function createRoutes(): Router {
     try {
       const q = req.query.q as string
       if (!q || !q.trim()) {
-        res.status(400).json({ error: 'Missing search query parameter "q"' })
+        sendError(res, 400, ErrorCode.MISSING_SEARCH_QUERY, 'Missing search query parameter "q"')
         return
       }
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100)
@@ -110,8 +109,7 @@ export function createRoutes(): Router {
         count: rows.length
       })
     } catch (err) {
-      log.error('[API] GET /meetings/search error:', err)
-      res.status(500).json({ error: 'Search failed' })
+      sendInternalError(res, ErrorCode.SEARCH_FAILED, 'Search failed', err)
     }
   })
 
@@ -120,7 +118,7 @@ export function createRoutes(): Router {
     try {
       const row = getMeeting(req.params.id)
       if (!row) {
-        res.status(404).json({ error: 'Meeting not found' })
+        sendError(res, 404, ErrorCode.MEETING_NOT_FOUND, 'Meeting not found')
         return
       }
 
@@ -132,8 +130,7 @@ export function createRoutes(): Router {
         res.json(formatMeetingRow(row))
       }
     } catch (err) {
-      log.error('[API] GET /meetings/:id error:', err)
-      res.status(500).json({ error: 'Failed to get meeting' })
+      sendInternalError(res, ErrorCode.GET_MEETING_FAILED, 'Failed to get meeting', err)
     }
   })
 
@@ -142,18 +139,17 @@ export function createRoutes(): Router {
     try {
       const dir = getMeetingDir(req.params.id)
       if (!dir) {
-        res.status(404).json({ error: 'Meeting not found' })
+        sendError(res, 404, ErrorCode.MEETING_NOT_FOUND, 'Meeting not found')
         return
       }
       const transcript = readTranscript(dir)
       if (!transcript) {
-        res.status(404).json({ error: 'Transcript not found' })
+        sendError(res, 404, ErrorCode.TRANSCRIPT_NOT_FOUND, 'Transcript not found')
         return
       }
       res.json(transcript)
     } catch (err) {
-      log.error('[API] GET /meetings/:id/transcript error:', err)
-      res.status(500).json({ error: 'Failed to get transcript' })
+      sendInternalError(res, ErrorCode.GET_TRANSCRIPT_FAILED, 'Failed to get transcript', err)
     }
   })
 
@@ -162,18 +158,17 @@ export function createRoutes(): Router {
     try {
       const dir = getMeetingDir(req.params.id)
       if (!dir) {
-        res.status(404).json({ error: 'Meeting not found' })
+        sendError(res, 404, ErrorCode.MEETING_NOT_FOUND, 'Meeting not found')
         return
       }
       const summary = readSummary(dir)
       if (!summary) {
-        res.status(404).json({ error: 'Summary not found — meeting may not have been summarized' })
+        sendError(res, 404, ErrorCode.SUMMARY_NOT_FOUND, 'Summary not found — meeting may not have been summarized')
         return
       }
       res.json(summary)
     } catch (err) {
-      log.error('[API] GET /meetings/:id/summary error:', err)
-      res.status(500).json({ error: 'Failed to get summary' })
+      sendInternalError(res, ErrorCode.GET_SUMMARY_FAILED, 'Failed to get summary', err)
     }
   })
 
@@ -182,18 +177,17 @@ export function createRoutes(): Router {
     try {
       const dir = getMeetingDir(req.params.id)
       if (!dir) {
-        res.status(404).json({ error: 'Meeting not found' })
+        sendError(res, 404, ErrorCode.MEETING_NOT_FOUND, 'Meeting not found')
         return
       }
       const actions = readActions(dir)
       if (!actions) {
-        res.status(404).json({ error: 'No action items found' })
+        sendError(res, 404, ErrorCode.ACTIONS_NOT_FOUND, 'No action items found')
         return
       }
       res.json({ actions })
     } catch (err) {
-      log.error('[API] GET /meetings/:id/actions error:', err)
-      res.status(500).json({ error: 'Failed to get actions' })
+      sendInternalError(res, ErrorCode.GET_ACTIONS_FAILED, 'Failed to get actions', err)
     }
   })
 
@@ -202,23 +196,23 @@ export function createRoutes(): Router {
     try {
       const dir = getMeetingDir(req.params.id)
       if (!dir) {
-        res.status(404).json({ error: 'Meeting not found' })
+        sendError(res, 404, ErrorCode.MEETING_NOT_FOUND, 'Meeting not found')
         return
       }
       const transcript = readTranscript(dir)
       if (!transcript) {
-        res.status(404).json({ error: 'Transcript not found' })
+        sendError(res, 404, ErrorCode.TRANSCRIPT_NOT_FOUND, 'Transcript not found')
         return
       }
       const metadata = readMeetingMetadata(dir)
       if (!metadata) {
-        res.status(404).json({ error: 'Meeting metadata not found' })
+        sendError(res, 404, ErrorCode.METADATA_NOT_FOUND, 'Meeting metadata not found')
         return
       }
 
       const summarizer = new AnthropicSummarizer()
       if (!summarizer.isConfigured()) {
-        res.status(400).json({ error: 'Anthropic API key not configured' })
+        sendError(res, 400, ErrorCode.SUMMARIZER_NOT_CONFIGURED, 'Anthropic API key not configured')
         return
       }
 
@@ -235,8 +229,7 @@ export function createRoutes(): Router {
 
       res.json({ summary, actions })
     } catch (err) {
-      log.error('[API] POST /meetings/:id/summarize error:', err)
-      res.status(500).json({ error: 'Failed to trigger summarization' })
+      sendInternalError(res, ErrorCode.SUMMARIZE_FAILED, 'Failed to trigger summarization', err)
     }
   })
 
@@ -245,22 +238,22 @@ export function createRoutes(): Router {
     try {
       const dir = getMeetingDir(req.params.id)
       if (!dir) {
-        res.status(404).json({ error: 'Meeting not found' })
+        sendError(res, 404, ErrorCode.MEETING_NOT_FOUND, 'Meeting not found')
         return
       }
       const actions = readActions(dir)
       if (!actions) {
-        res.status(404).json({ error: 'No action items found' })
+        sendError(res, 404, ErrorCode.ACTIONS_NOT_FOUND, 'No action items found')
         return
       }
       const action = actions.find((a) => a.id === req.params.aid)
       if (!action) {
-        res.status(404).json({ error: 'Action item not found' })
+        sendError(res, 404, ErrorCode.ACTION_ITEM_NOT_FOUND, 'Action item not found')
         return
       }
       const { status } = req.body
       if (!status || !['pending', 'in_progress', 'completed'].includes(status)) {
-        res.status(400).json({ error: 'Invalid status — must be pending, in_progress, or completed' })
+        sendError(res, 400, ErrorCode.INVALID_ACTION_STATUS, 'Invalid status — must be pending, in_progress, or completed')
         return
       }
       action.status = status
@@ -274,8 +267,7 @@ export function createRoutes(): Router {
 
       res.json({ action })
     } catch (err) {
-      log.error('[API] POST /meetings/:id/actions/:aid error:', err)
-      res.status(500).json({ error: 'Failed to update action' })
+      sendInternalError(res, ErrorCode.UPDATE_ACTION_FAILED, 'Failed to update action', err)
     }
   })
 
@@ -284,7 +276,7 @@ export function createRoutes(): Router {
     try {
       const dir = getMeetingDir(req.params.id)
       if (!dir) {
-        res.status(404).json({ error: 'Meeting not found' })
+        sendError(res, 404, ErrorCode.MEETING_NOT_FOUND, 'Meeting not found')
         return
       }
       deleteMeetingFiles(dir)
@@ -292,8 +284,7 @@ export function createRoutes(): Router {
       log.info(`[API] Deleted meeting ${req.params.id}`)
       res.json({ deleted: true })
     } catch (err) {
-      log.error('[API] DELETE /meetings/:id error:', err)
-      res.status(500).json({ error: 'Failed to delete meeting' })
+      sendInternalError(res, ErrorCode.DELETE_MEETING_FAILED, 'Failed to delete meeting', err)
     }
   })
 
@@ -320,8 +311,7 @@ export function createRoutes(): Router {
         api: config.api
       })
     } catch (err) {
-      log.error('[API] GET /config error:', err)
-      res.status(500).json({ error: 'Failed to get config' })
+      sendInternalError(res, ErrorCode.GET_CONFIG_FAILED, 'Failed to get config', err)
     }
   })
 
