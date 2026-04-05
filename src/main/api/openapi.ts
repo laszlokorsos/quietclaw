@@ -331,7 +331,7 @@ export const openApiSpec = {
           speakers: {
             type: 'array',
             items: { type: 'string' },
-            example: ['Laszlo Korsos', 'Speaker A']
+            example: ['Alex Chen', 'Speaker A']
           },
           summarized: { type: 'boolean' },
           sttProvider: { type: 'string', example: 'deepgram' }

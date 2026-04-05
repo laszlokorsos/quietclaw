@@ -2,7 +2,7 @@
 type: "meeting-summary"
 date: "2026-04-04"
 title: "Weekly Standup"
-participants: ["Laszlo Korsos", "Speaker A", "Speaker B"]
+participants: ["Alex Chen", "Speaker A", "Speaker B"]
 platform: google-meet
 duration: 24m
 summarized: true
@@ -15,17 +15,17 @@ Weekly standup covering API rate limiting completion, onboarding redesign progre
 
 ## Topics
 ### API Rate Limiting
-*Participants: Speaker A, [[Laszlo Korsos]]*
+*Participants: Speaker A, [[Alex Chen]]*
 
 Rate limiting is deployed to staging, handling 500 req/s under load tests. Next step is webhook retry logic with exponential backoff and jitter, max 5 retries over 24 hours.
 
 ### Onboarding Redesign
-*Participants: Speaker B, [[Laszlo Korsos]]*
+*Participants: Speaker B, [[Alex Chen]]*
 
 New onboarding flow nearly complete, pending email verification wiring. A bug was found in the password reset flow where tokens expire before emails arrive due to mail queue latency.
 
 ### Password Reset Token Expiry
-*Participants: Speaker B, [[Laszlo Korsos]]*
+*Participants: Speaker B, [[Alex Chen]]*
 
 Current 15-minute token expiry is too short when the mail queue is slow. Decision made to extend to 1 hour since tokens are single-use and invalidated after use.
 
@@ -35,7 +35,7 @@ Current 15-minute token expiry is too short when the mail queue is slow. Decisio
 Identified potential overlap between mail queue latency and webhook delivery reliability. Jordan will check queue metrics as part of the webhook retry work.
 
 ### Billing Migration
-*Participants: [[Laszlo Korsos]]*
+*Participants: [[Alex Chen]]*
 
 Alex is finishing the Stripe API v1 to v2 migration, expected to complete by end of day. Will review team PRs the following morning.
 

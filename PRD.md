@@ -292,7 +292,7 @@ Every meeting produces a directory under `~/.quietclaw/meetings/YYYY-MM-DD/`:
 
 ```
 YYYY-MM-DD/
-  standup-with-jordan-a1b2/
+  weekly-standup-a1b2/
   ├── metadata.json          # Meeting metadata (always present)
   ├── audio.opus             # Compressed audio (only if retain_audio enabled; format configurable)
   ├── transcript.json        # Full structured transcript (always present)
@@ -308,13 +308,13 @@ The `meeting-slug` is derived from the calendar event title (lowercased, hyphena
 ```json
 {
   "id": "uuid-v4",
-  "title": "Standup with Jordan",
+  "title": "Weekly Standup",
   "platform": "google_meet",
   "start_time": "2026-03-31T10:00:00-05:00",
   "end_time": "2026-03-31T10:32:00-05:00",
   "duration_seconds": 1920,
   "participants": [
-    {"name": "Laszlo Korsos", "email": "alex@acmecorp.com", "role": "organizer"},
+    {"name": "Alex Chen", "email": "alex@acmecorp.com", "role": "organizer"},
     {"name": "Jordan (CTO)", "email": "jordan@acmecorp.com", "role": "attendee"}
   ],
   "calendar_source": {
@@ -349,7 +349,7 @@ The `meeting-slug` is derived from the calendar event title (lowercased, hyphena
       "source": "system_audio"
     },
     {
-      "speaker": "Laszlo Korsos",
+      "speaker": "Alex Chen",
       "start_time": 12.8,
       "end_time": 28.1,
       "text": "Sure. So the MLP leadership search is progressing well...",
@@ -371,7 +371,7 @@ The `meeting-slug` is derived from the calendar event title (lowercased, hyphena
     {
       "title": "MLP Leadership Search",
       "summary": "Search is progressing. Panel aligned on openness to strong ICs.",
-      "participants_involved": ["Laszlo Korsos", "Jordan"]
+      "participants_involved": ["Alex Chen", "Jordan"]
     }
   ],
   "key_decisions": [
@@ -390,7 +390,7 @@ The `meeting-slug` is derived from the calendar event title (lowercased, hyphena
     {
       "id": "action-uuid",
       "description": "Send updated offer package to MLP lead candidate",
-      "assignee": "Laszlo Korsos",
+      "assignee": "Alex Chen",
       "due_date": null,
       "priority": "high",
       "status": "pending",

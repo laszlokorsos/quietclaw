@@ -50,15 +50,15 @@
   {
     "id": "act-007",
     "description": "Complete Stripe API v1 to v2 billing migration",
-    "assignee": "Laszlo Korsos",
+    "assignee": "Alex Chen",
     "priority": "high",
     "agent_executable": false,
     "status": "pending"
   },
   {
     "id": "act-008",
-    "description": "Review Jordan's rate limiting PR and Priya's onboarding PR",
-    "assignee": "Laszlo Korsos",
+    "description": "Review Jordan's rate limiting PR and Sam's onboarding PR",
+    "assignee": "Alex Chen",
     "priority": "medium",
     "agent_executable": false,
     "status": "pending",

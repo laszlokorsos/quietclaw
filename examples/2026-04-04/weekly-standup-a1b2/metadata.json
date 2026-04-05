@@ -7,14 +7,14 @@
   "duration": 1472,
   "calendarEvent": {
     "eventId": "abc123def456",
-    "calendarAccountEmail": "alex@example.com",
+    "calendarAccountEmail": "alex@acmecorp.com",
     "title": "Weekly Standup",
     "startTime": "2026-04-04T09:00:00-07:00",
     "endTime": "2026-04-04T09:30:00-07:00",
     "attendees": [
-      { "name": "Laszlo Korsos", "email": "alex@example.com", "self": true, "responseStatus": "accepted" },
-      { "name": "Jordan Reyes", "email": "jordan@example.com", "responseStatus": "accepted" },
-      { "name": "Priya Sharma", "email": "priya@example.com", "responseStatus": "accepted" }
+      { "name": "Alex Chen", "email": "alex@acmecorp.com", "self": true, "responseStatus": "accepted" },
+      { "name": "Jordan Smith", "email": "jordan@acmecorp.com", "responseStatus": "accepted" },
+      { "name": "Sam Rivera", "email": "sam@acmecorp.com", "responseStatus": "accepted" }
     ],
     "meetingLink": "https://meet.google.com/abc-defg-hij",
     "platform": "google_meet",
@@ -23,7 +23,7 @@
     ]
   },
   "speakers": [
-    { "name": "Laszlo Korsos", "speakerId": 0, "source": "microphone", "email": "alex@example.com" },
+    { "name": "Alex Chen", "speakerId": 0, "source": "microphone", "email": "alex@acmecorp.com" },
     { "name": "Speaker A", "speakerId": 1, "source": "system" },
     { "name": "Speaker B", "speakerId": 2, "source": "system" }
   ],

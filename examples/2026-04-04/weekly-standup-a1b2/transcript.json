@@ -1,7 +1,7 @@
 {
   "segments": [
     {
-      "speaker": "Laszlo Korsos",
+      "speaker": "Alex Chen",
       "speakerId": 0,
       "source": "microphone",
       "start": 0.0,
@@ -19,7 +19,7 @@
       "confidence": 0.95
     },
     {
-      "speaker": "Laszlo Korsos",
+      "speaker": "Alex Chen",
       "speakerId": 0,
       "source": "microphone",
       "start": 19.1,
@@ -37,12 +37,12 @@
       "confidence": 0.94
     },
     {
-      "speaker": "Laszlo Korsos",
+      "speaker": "Alex Chen",
       "speakerId": 0,
       "source": "microphone",
       "start": 34.8,
       "end": 41.0,
-      "text": "Yeah that's solid. Make sure we log each retry attempt so we can debug delivery failures. Priya, how about you?",
+      "text": "Yeah that's solid. Make sure we log each retry attempt so we can debug delivery failures. Sam, how about you?",
       "confidence": 0.96
     },
     {
@@ -55,7 +55,7 @@
       "confidence": 0.93
     },
     {
-      "speaker": "Laszlo Korsos",
+      "speaker": "Alex Chen",
       "speakerId": 0,
       "source": "microphone",
       "start": 58.9,
@@ -73,7 +73,7 @@
       "confidence": 0.95
     },
     {
-      "speaker": "Laszlo Korsos",
+      "speaker": "Alex Chen",
       "speakerId": 0,
       "source": "microphone",
       "start": 72.3,
@@ -91,7 +91,7 @@
       "confidence": 0.92
     },
     {
-      "speaker": "Laszlo Korsos",
+      "speaker": "Alex Chen",
       "speakerId": 0,
       "source": "microphone",
       "start": 87.8,
@@ -118,7 +118,7 @@
       "confidence": 0.95
     },
     {
-      "speaker": "Laszlo Korsos",
+      "speaker": "Alex Chen",
       "speakerId": 0,
       "source": "microphone",
       "start": 108.5,

@@ -440,7 +440,7 @@ curl -X POST http://localhost:19832/api/v1/meetings/{id}/summarize
 
 # Or just read the files directly
 ls ~/.quietclaw/meetings/$(date +%Y-%m-%d)/
-cat ~/.quietclaw/meetings/2026-03-31/standup-with-jordan-a1b2/transcript.json
+cat ~/.quietclaw/meetings/2026-03-31/weekly-standup-a1b2/transcript.json
 ```
 
 ### Recommended agentic workflow

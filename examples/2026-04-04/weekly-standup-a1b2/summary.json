@@ -3,17 +3,17 @@
   "topics": [
     {
       "topic": "API Rate Limiting",
-      "participants": ["Speaker A", "Laszlo Korsos"],
+      "participants": ["Speaker A", "Alex Chen"],
       "summary": "Rate limiting is deployed to staging, handling 500 req/s under load tests. Next step is webhook retry logic with exponential backoff and jitter, max 5 retries over 24 hours."
     },
     {
       "topic": "Onboarding Redesign",
-      "participants": ["Speaker B", "Laszlo Korsos"],
+      "participants": ["Speaker B", "Alex Chen"],
       "summary": "New onboarding flow nearly complete, pending email verification wiring. A bug was found in the password reset flow where tokens expire before emails arrive due to mail queue latency."
     },
     {
       "topic": "Password Reset Token Expiry",
-      "participants": ["Speaker B", "Laszlo Korsos"],
+      "participants": ["Speaker B", "Alex Chen"],
       "summary": "Current 15-minute token expiry is too short when the mail queue is slow. Decision made to extend to 1 hour since tokens are single-use and invalidated after use."
     },
     {
@@ -23,7 +23,7 @@
     },
     {
       "topic": "Billing Migration",
-      "participants": ["Laszlo Korsos"],
+      "participants": ["Alex Chen"],
       "summary": "Alex is finishing the Stripe API v1 to v2 migration, expected to complete by end of day. Will review team PRs the following morning."
     }
   ],
