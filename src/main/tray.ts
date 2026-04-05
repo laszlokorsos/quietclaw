@@ -64,7 +64,7 @@ export function setupTray(
       },
       { type: 'separator' },
       {
-        label: 'View Meetings & Transcripts',
+        label: 'View Meetings && Transcripts',
         click: () => {
           mainWindow?.show()
           mainWindow?.focus()
