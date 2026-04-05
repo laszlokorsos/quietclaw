@@ -18,7 +18,7 @@ pnpm run dev             # Start in dev mode with hot reload
 
 ```bash
 pnpm test                # Run all tests
-npx tsc --noEmit         # Type check
+pnpm typecheck           # Type check
 ```
 
 ## Project Structure

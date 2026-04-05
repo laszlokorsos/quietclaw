@@ -28,3 +28,7 @@ coverage/
 
 # Data (never commit user data)
 meetings/
+
+# Claude Code working files
+.claude/
+tasks/

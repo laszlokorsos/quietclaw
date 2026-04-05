@@ -10,6 +10,19 @@ Your AI agents are blind to what happens in meetings — decisions, action items
 
 Think of it as [Granola](https://granola.ai) but open-source and built for agents.
 
+<!-- TODO: Add screenshot or demo GIF here
+<p align="center">
+  <img src="docs/images/screenshot-meeting-list.png" alt="QuietClaw meeting list" width="600" />
+</p>
+
+Suggested visuals:
+  1. Hero screenshot — meeting list with a few recorded meetings, light mode
+  2. Short GIF/video — start a call → transcript appears → summary with action items
+  3. Terminal screenshot — curl commands hitting the local API, showing JSON output
+  
+Place images in docs/images/ and videos on YouTube or as GitHub release assets.
+-->
+
 ## Why QuietClaw
 
 | | |
@@ -173,7 +186,7 @@ QuietClaw uses a TOML config file at `~/.quietclaw/config.toml`. Key settings:
 
 ```toml
 [general]
-data_dir = "~/.quietclaw"            # Where meetings are stored
+data_dir = "~/.quietclaw/meetings"    # Where meetings are stored
 
 [stt]
 provider = "deepgram"                 # STT provider (deepgram is the default)
