@@ -37,6 +37,8 @@ export interface QuietClawAPI {
         meetingLink?: string
       }
     } | null>
+    startRecording: () => Promise<boolean>
+    stopRecording: () => Promise<boolean>
   }
   dialog: {
     selectFolder: () => Promise<string | null>
@@ -92,7 +94,9 @@ const api: QuietClawAPI = {
   pipeline: {
     getState: () => ipcRenderer.invoke('pipeline:getState'),
     getSessionId: () => ipcRenderer.invoke('pipeline:getSessionId'),
-    getSessionInfo: () => ipcRenderer.invoke('pipeline:getSessionInfo')
+    getSessionInfo: () => ipcRenderer.invoke('pipeline:getSessionInfo'),
+    startRecording: () => ipcRenderer.invoke('pipeline:startRecording'),
+    stopRecording: () => ipcRenderer.invoke('pipeline:stopRecording')
   },
   dialog: {
     selectFolder: () => ipcRenderer.invoke('dialog:selectFolder')

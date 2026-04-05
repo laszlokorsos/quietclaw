@@ -82,6 +82,8 @@
   --qc-now-bg: rgba(22, 163, 74, 0.08);
   --qc-now-border: rgba(22, 163, 74, 0.25);
   --qc-now-text: #16a34a;
+  --qc-scrollbar: rgba(125, 120, 115, 0.4);
+  --qc-scrollbar-hover: rgba(125, 120, 115, 0.65);
 }
 
 /* ---------------------------------------------------------------------------
@@ -110,6 +112,8 @@
   --qc-now-bg: rgba(74, 222, 128, 0.1);
   --qc-now-border: rgba(74, 222, 128, 0.25);
   --qc-now-text: #4ade80;
+  --qc-scrollbar: rgba(90, 82, 75, 0.6);
+  --qc-scrollbar-hover: rgba(110, 100, 90, 0.75);
 }
 
 /* ---------------------------------------------------------------------------
@@ -131,17 +135,17 @@ body {
 
 /* Custom scrollbar — thin and warm */
 ::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--qc-border);
+  background: var(--qc-scrollbar);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--qc-text-muted);
+  background: var(--qc-scrollbar-hover);
 }
 
 /* Smooth transitions on interactive elements */
@@ -156,4 +160,13 @@ button, a, input {
 }
 .animate-toast-in {
   animation: toast-in 200ms ease-out;
+}
+
+/* Gentle pulse for recording button */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
 }

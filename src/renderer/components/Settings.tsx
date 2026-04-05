@@ -108,247 +108,248 @@ export default function Settings({
 
   return (
     <div className="p-6 max-w-lg mx-auto">
-      <h2 className="text-xl font-semibold tracking-tight mb-6">Settings</h2>
 
-      {/* Appearance */}
+      {/* ── API Keys ── */}
       <section className="mb-8">
-        <h3 className="text-sm font-medium text-text-secondary mb-3">Appearance</h3>
-        <div className="inline-flex bg-surface-secondary rounded-xl p-1">
-          {themeOptions.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => onThemeChange(opt.value)}
-              className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-                themePreference === opt.value
-                  ? 'bg-surface-elevated text-text-primary shadow-sm'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </section>
+        <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">API Keys</h3>
+        <div className="bg-surface-secondary rounded-2xl divide-y divide-border/40">
 
-      <hr className="border-border/40 mb-8" />
-
-      {/* Deepgram */}
-      <section className="mb-8">
-        <h3 className="text-sm font-medium text-text-secondary mb-2">Deepgram API Key</h3>
-        <p className="text-xs text-text-secondary mb-3">
-          Required for speech-to-text. Get a key at{' '}
-          <a href="https://console.deepgram.com" target="_blank" rel="noreferrer" className="text-accent hover:underline">console.deepgram.com</a>
-        </p>
-        {hasDeepgramKey ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-success">
-              {saved === 'deepgram' ? 'Saved!' : 'Configured'}
-            </span>
-            <button
-              onClick={() => setHasDeepgramKey(false)}
-              className="text-xs text-text-muted hover:text-text-secondary transition-colors"
-            >
-              Change
-            </button>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <div className="flex-1 relative">
-              <input
-                type={showDeepgramKey ? 'text' : 'password'}
-                placeholder="Paste your Deepgram API key"
-                value={deepgramInput}
-                onChange={(e) => setDeepgramInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && saveDeepgramKey()}
-                className="w-full px-4 pr-10 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
-              />
-              {deepgramInput && (
-                <button
-                  type="button"
-                  onClick={() => setShowDeepgramKey(!showDeepgramKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
-                  title={showDeepgramKey ? 'Hide key' : 'Show key'}
-                >
-                  {showDeepgramKey ? (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
-                    </svg>
-                  )}
-                </button>
+          {/* Deepgram */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-text-primary">Deepgram</span>
+              {hasDeepgramKey && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-success">{saved === 'deepgram' ? 'Saved!' : 'Configured'}</span>
+                  <button onClick={() => setHasDeepgramKey(false)} className="text-xs text-text-muted hover:text-text-secondary transition-colors">Change</button>
+                </div>
               )}
             </div>
-            <button
-              onClick={saveDeepgramKey}
-              disabled={!deepgramInput.trim() || saving === 'deepgram'}
-              className="px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover disabled:opacity-40 disabled:cursor-default transition-colors"
-            >
-              Save
-            </button>
-          </div>
-        )}
-      </section>
-
-      {/* Anthropic */}
-      <section className="mb-8">
-        <h3 className="text-sm font-medium text-text-secondary mb-2">Anthropic API Key</h3>
-        <p className="text-xs text-text-secondary mb-3">
-          Optional — enables AI summarization after recordings.
-        </p>
-        {hasAnthropicKey ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-success">
-              {saved === 'anthropic' ? 'Saved!' : 'Configured'}
-            </span>
-            <button
-              onClick={() => setHasAnthropicKey(false)}
-              className="text-xs text-text-muted hover:text-text-secondary transition-colors"
-            >
-              Change
-            </button>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <div className="flex-1 relative">
-              <input
-                type={showAnthropicKey ? 'text' : 'password'}
-                placeholder="Paste your Anthropic API key"
-                value={anthropicInput}
-                onChange={(e) => setAnthropicInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && saveAnthropicKey()}
-                className="w-full px-4 pr-10 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
-              />
-              {anthropicInput && (
-                <button
-                  type="button"
-                  onClick={() => setShowAnthropicKey(!showAnthropicKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
-                  title={showAnthropicKey ? 'Hide key' : 'Show key'}
-                >
-                  {showAnthropicKey ? (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
-                    </svg>
+            <p className="text-xs text-text-muted mb-2">
+              Required for speech-to-text.{' '}
+              <a href="https://console.deepgram.com" target="_blank" rel="noreferrer" className="text-accent hover:underline">Get a key</a>
+            </p>
+            {!hasDeepgramKey && (
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <input
+                    type={showDeepgramKey ? 'text' : 'password'}
+                    placeholder="Paste your Deepgram API key"
+                    value={deepgramInput}
+                    onChange={(e) => setDeepgramInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveDeepgramKey()}
+                    className="w-full px-3 pr-9 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
+                  />
+                  {deepgramInput && (
+                    <button
+                      type="button"
+                      onClick={() => setShowDeepgramKey(!showDeepgramKey)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+                      title={showDeepgramKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showDeepgramKey ? (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+                        </svg>
+                      )}
+                    </button>
                   )}
-                </button>
-              )}
-            </div>
-            <button
-              onClick={saveAnthropicKey}
-              disabled={!anthropicInput.trim() || saving === 'anthropic'}
-              className="px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover disabled:opacity-40 disabled:cursor-default transition-colors"
-            >
-              Save
-            </button>
-          </div>
-        )}
-      </section>
-
-      <hr className="border-border/40 mb-8" />
-
-      {/* Calendar */}
-      <section className="mb-8">
-        <h3 className="text-sm font-medium text-text-secondary mb-2">Google Calendar</h3>
-        <p className="text-xs text-text-secondary mb-3">
-          Connect your calendar to auto-match recordings to events and name speakers.
-        </p>
-
-        {calendarAccounts.length > 0 && (
-          <div className="space-y-2 mb-3">
-            {calendarAccounts.map((account) => (
-              <div
-                key={account.email}
-                className="flex items-center justify-between bg-surface-secondary rounded-xl px-4 py-3"
-              >
-                <div>
-                  <p className="text-sm text-text-primary">{account.email}</p>
-                  <p className="text-xs text-text-secondary">{account.provider}</p>
                 </div>
                 <button
-                  onClick={() => removeCalendar(account.email)}
-                  className="text-xs text-text-muted hover:text-red-400 transition-colors"
+                  onClick={saveDeepgramKey}
+                  disabled={!deepgramInput.trim() || saving === 'deepgram'}
+                  className="px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover disabled:opacity-40 disabled:cursor-default transition-colors"
                 >
-                  Remove
+                  Save
                 </button>
               </div>
-            ))}
+            )}
           </div>
-        )}
 
-        {connectingCalendar ? (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-4 py-2.5 bg-surface-elevated rounded-xl">
-              <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
-              <span className="text-sm text-text-secondary">Waiting for Google sign-in...</span>
+          {/* Anthropic */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-text-primary">Anthropic</span>
+              {hasAnthropicKey && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-success">{saved === 'anthropic' ? 'Saved!' : 'Configured'}</span>
+                  <button onClick={() => setHasAnthropicKey(false)} className="text-xs text-text-muted hover:text-text-secondary transition-colors">Change</button>
+                </div>
+              )}
             </div>
-            <button
-              onClick={() => { api?.calendar.abortAuth(); setConnectingCalendar(false) }}
-              className="text-xs text-text-muted hover:text-text-secondary transition-colors"
-            >
-              Cancel
-            </button>
+            <p className="text-xs text-text-muted mb-2">
+              Optional — enables AI summarization.{' '}
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="text-accent hover:underline">Get a key</a>
+            </p>
+            {!hasAnthropicKey && (
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <input
+                    type={showAnthropicKey ? 'text' : 'password'}
+                    placeholder="Paste your Anthropic API key"
+                    value={anthropicInput}
+                    onChange={(e) => setAnthropicInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveAnthropicKey()}
+                    className="w-full px-3 pr-9 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
+                  />
+                  {anthropicInput && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+                      title={showAnthropicKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showAnthropicKey ? (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={saveAnthropicKey}
+                  disabled={!anthropicInput.trim() || saving === 'anthropic'}
+                  className="px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover disabled:opacity-40 disabled:cursor-default transition-colors"
+                >
+                  Save
+                </button>
+              </div>
+            )}
           </div>
-        ) : (
-          <button
-            onClick={connectCalendar}
-            className="px-4 py-2.5 bg-surface-elevated text-text-primary text-sm rounded-xl hover:bg-surface-secondary transition-colors"
-          >
-            Connect Google Account
-          </button>
-        )}
-      </section>
-
-      <hr className="border-border/40 mb-8" />
-
-      {/* Recording Location */}
-      <section className="mb-8">
-        <h3 className="text-sm font-medium text-text-secondary mb-2">Recording Location</h3>
-        <p className="text-xs text-text-secondary mb-3">
-          Where meeting recordings and transcripts are stored. Changes apply to future recordings only.
-        </p>
-        <div className="flex items-center gap-2">
-          <code className="flex-1 px-4 py-2.5 bg-surface-secondary border border-border rounded-xl text-xs text-text-secondary truncate">
-            {dataDir}
-          </code>
-          <button
-            onClick={changeDataDir}
-            className="px-3 py-2.5 bg-surface-elevated text-text-primary text-xs rounded-xl hover:bg-surface-secondary shrink-0 transition-colors"
-          >
-            Change
-          </button>
         </div>
       </section>
 
-      <hr className="border-border/40 mb-8" />
-
-      {/* Recording Laws */}
+      {/* ── Integrations ── */}
       <section className="mb-8">
-        <h3 className="text-sm font-medium text-text-secondary mb-2">Recording & Consent</h3>
-        <div className="bg-surface-secondary rounded-xl px-4 py-3">
-          <p className="text-xs text-text-secondary leading-relaxed">
-            Recording laws vary by jurisdiction. It is your responsibility to understand and comply with the laws that apply to you and the other participants in your meetings.
+        <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">Integrations</h3>
+        <div className="bg-surface-secondary rounded-2xl px-5 py-4">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-medium text-text-primary">Google Calendar</span>
+            {calendarAccounts.length > 0 && (
+              <span className="text-xs text-success">{calendarAccounts.length} connected</span>
+            )}
+          </div>
+          <p className="text-xs text-text-muted mb-3">
+            Auto-match recordings to events and identify speakers from attendees.
+          </p>
+
+          {calendarAccounts.length > 0 && (
+            <div className="space-y-1.5 mb-3">
+              {calendarAccounts.map((account) => (
+                <div
+                  key={account.email}
+                  className="flex items-center justify-between bg-surface rounded-lg px-3 py-2"
+                >
+                  <span className="text-sm text-text-primary">{account.email}</span>
+                  <button
+                    onClick={() => removeCalendar(account.email)}
+                    className="text-xs text-text-muted hover:text-red-400 transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {connectingCalendar ? (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-2 bg-surface rounded-lg">
+                <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
+                <span className="text-sm text-text-secondary">Waiting for Google sign-in...</span>
+              </div>
+              <button
+                onClick={() => { api?.calendar.abortAuth(); setConnectingCalendar(false) }}
+                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={connectCalendar}
+              className="px-3 py-2 bg-surface text-text-primary text-sm rounded-lg hover:bg-surface-elevated transition-colors"
+            >
+              {calendarAccounts.length > 0 ? 'Add Another Account' : 'Connect Google Account'}
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* ── General ── */}
+      <section className="mb-8">
+        <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">General</h3>
+        <div className="bg-surface-secondary rounded-2xl divide-y divide-border/40">
+
+          {/* Appearance */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-medium text-text-primary">Appearance</span>
+              </div>
+              <div className="inline-flex bg-surface rounded-lg p-0.5">
+                {themeOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => onThemeChange(opt.value)}
+                    className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                      themePreference === opt.value
+                        ? 'bg-surface-elevated text-text-primary shadow-sm'
+                        : 'text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Recording Location */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-text-primary">Storage location</span>
+              <button
+                onClick={changeDataDir}
+                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+              >
+                Change
+              </button>
+            </div>
+            <code className="text-xs text-text-muted">
+              {dataDir}
+            </code>
+          </div>
+
+          {/* Recording & Consent */}
+          <div className="px-5 py-4">
+            <span className="text-sm font-medium text-text-primary">Recording & consent</span>
+            <p className="text-xs text-text-muted mt-1 leading-relaxed">
+              Recording laws vary by jurisdiction. It is your responsibility to comply with the laws that apply to you and the other participants in your meetings.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── About ── */}
+      <section className="mb-6">
+        <div className="text-center">
+          <p className="text-xs text-text-secondary">
+            QuietClaw v0.1.0 — The silent claw that listens.
+          </p>
+          <p className="text-xs text-text-muted mt-0.5">
+            Data: ~/.quietclaw/meetings &middot; API: localhost:19832
           </p>
         </div>
-      </section>
-
-      <hr className="border-border/40 mb-8" />
-
-      {/* Info */}
-      <section>
-        <h3 className="text-sm font-medium text-text-secondary mb-2">About</h3>
-        <p className="text-xs text-text-secondary">
-          QuietClaw v0.1.0 — The silent claw that listens.
-        </p>
-        <p className="text-xs text-text-muted mt-1">
-          Data: ~/.quietclaw/meetings &middot; API: localhost:19832
-        </p>
       </section>
     </div>
   )

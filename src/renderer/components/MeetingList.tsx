@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import RecoveryBanner from './RecoveryBanner'
+import { useToast } from '../contexts/ToastContext'
+import type { SessionInfo } from '../App'
 
 const api = (window as any).quietclaw
 
@@ -19,6 +21,7 @@ interface Meeting {
   date: string
   speakers: Array<{ name: string }>
   summarized: boolean
+  actionCount: number
 }
 
 interface MeetingLink {
@@ -86,14 +89,126 @@ function PlatformButton({ link }: { link: MeetingLink }) {
   )
 }
 
-export default function MeetingList({ onSelect }: { onSelect: (id: string) => void }) {
+/** Impromptu / unscheduled recording card */
+function ImpromptuCard({
+  isRecording,
+  isProcessing,
+  sessionInfo,
+  hasUpcoming,
+  onError
+}: {
+  isRecording: boolean
+  isProcessing: boolean
+  sessionInfo: SessionInfo | null
+  hasUpcoming: boolean
+  onError: (msg: string) => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+  const startRef = useRef<number>(0)
+
+  useEffect(() => {
+    if (!isRecording) { setElapsed(0); return }
+    startRef.current = sessionInfo?.startTime
+      ? new Date(sessionInfo.startTime).getTime()
+      : Date.now()
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startRef.current) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [isRecording, sessionInfo?.startTime])
+
+  const handleClick = async () => {
+    if (isProcessing || loading) return
+    setLoading(true)
+    try {
+      if (isRecording) {
+        await api.pipeline.stopRecording()
+      } else {
+        await api.pipeline.startRecording()
+      }
+    } catch (err: any) {
+      onError(err?.message ?? 'Recording failed')
+    }
+    setLoading(false)
+  }
+
+  const mins = Math.floor(elapsed / 60)
+  const secs = elapsed % 60
+  const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`
+
+  if (isProcessing) {
+    return (
+      <div className={`px-4 py-4 rounded-xl bg-surface-secondary ${hasUpcoming ? 'mt-1.5' : ''}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <svg className="w-3.5 h-3.5 text-text-muted animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round" />
+            </svg>
+            <span className="text-sm text-text-secondary">Processing recording...</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (isRecording) {
+    return (
+      <div className={`px-4 py-4 rounded-xl bg-recording/8 border border-recording/20 ${hasUpcoming ? 'mt-1.5' : ''}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-recording animate-pulse" />
+            <span className="text-sm font-medium text-recording-text">{timeStr}</span>
+            <span className="text-sm text-text-secondary">
+              {sessionInfo?.title ?? 'Unscheduled recording'}
+            </span>
+          </div>
+          <button
+            onClick={handleClick}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-recording/15 text-recording text-sm font-medium hover:bg-recording/25 transition-colors"
+          >
+            <svg className="w-3 h-3" viewBox="0 0 12 12" fill="currentColor">
+              <rect x="1" y="1" width="10" height="10" rx="1.5" />
+            </svg>
+            Stop
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`mt-3 ${hasUpcoming ? '' : 'mt-0'}`}>
+      <span className="text-xs text-text-muted">Recording didn't start? </span>
+      <button
+        onClick={handleClick}
+        disabled={loading}
+        className="text-xs text-text-secondary hover:text-text-primary hover:underline cursor-pointer transition-colors"
+      >
+        Start manually
+      </button>
+    </div>
+  )
+}
+
+interface MeetingListProps {
+  onSelect: (id: string) => void
+  isRecording: boolean
+  isProcessing: boolean
+  sessionInfo: SessionInfo | null
+}
+
+export default function MeetingList({ onSelect, isRecording, isProcessing, sessionInfo }: MeetingListProps) {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [upcoming, setUpcoming] = useState<CalendarEvent[]>([])
   const [search, setSearch] = useState('')
   const [loadingMeetings, setLoadingMeetings] = useState(true)
   const [loadingCalendar, setLoadingCalendar] = useState(true)
+  const [hasDeepgramKey, setHasDeepgramKey] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const { addToast } = useToast()
 
   // Listen for Cmd+K / "/" focus-search events from App.tsx
   useEffect(() => {
@@ -108,6 +223,7 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
     loadMeetings()
     loadCalendar()
     if (api) {
+      api.secrets.hasDeepgramKey().then(setHasDeepgramKey)
       const unsubMeeting = api.on('meeting-processed', () => { loadMeetings(); loadCalendar() })
       const unsubCalendar = api.on('calendar-synced', () => loadCalendar())
       return () => { unsubMeeting(); unsubCalendar() }
@@ -206,7 +322,14 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
     const yesterday = new Date(today)
     yesterday.setDate(yesterday.getDate() - 1)
     if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    // Within the last 7 days: "Wednesday, Apr 2"
+    const weekAgo = new Date(today)
+    weekAgo.setDate(weekAgo.getDate() - 6)
+    if (d >= weekAgo) {
+      return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+    }
+    // Older: "Mar 28, 2026"
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
   function formatTimeRange(start: string, end: string) {
@@ -219,7 +342,7 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
   }
 
   const grouped = meetings.reduce<Record<string, Meeting[]>>((acc, m) => {
-    const key = m.date || new Date(m.startTime).toISOString().slice(0, 10)
+    const key = m.date || (() => { const d = new Date(m.startTime); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
     ;(acc[key] ??= []).push(m)
     return acc
   }, {})
@@ -262,58 +385,71 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
         )}
       </div>
 
-      {/* Upcoming Today — hidden during active search */}
-      {!search.trim() && <div className="mb-8">
-        <h3 className="text-xs font-medium text-text-secondary mb-4">
-          Upcoming today
-        </h3>
-        {loadingCalendar ? (
-          <div className="flex items-center gap-2 px-4 py-3 bg-surface-secondary/50 rounded-xl">
-            <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
-            <span className="text-xs text-text-muted">Syncing calendar...</span>
-          </div>
-        ) : upcoming.length > 0 ? (
-          <div className="space-y-1.5">
-            {upcoming.map((e) => {
-              const now = isHappeningNow(e.startTime, e.endTime)
-              const links = e.meetingLinks ?? (e.meetingLink ? [{ url: e.meetingLink, platform: e.platform ?? 'other' } as MeetingLink] : [])
-              return (
-                <div
-                  key={e.eventId}
-                  className={`px-4 py-4 rounded-xl transition-colors ${
-                    now ? 'bg-now-bg border border-now-border' : 'bg-surface-secondary'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-text-primary truncate">
-                        {e.title}
-                      </p>
-                      <p className="text-xs text-text-secondary mt-0.5">
-                        {formatTimeRange(e.startTime, e.endTime)}
-                        {e.attendees.length > 0 && (
-                          <> &middot; {e.attendees.filter(a => !a.email?.includes('resource')).map(a => a.name || a.email.split('@')[0]).slice(0, 4).join(', ')}{e.attendees.length > 4 ? ` +${e.attendees.length - 4}` : ''}</>
-                        )}
-                      </p>
+      {/* Upcoming Today + Impromptu Recording — hidden during active search */}
+      {!search.trim() && (upcoming.length > 0 || hasDeepgramKey) && <div className="mb-8">
+        {upcoming.length > 0 && (
+          <>
+            <h3 className="text-xs font-medium text-text-secondary mb-4">
+              Upcoming today
+            </h3>
+            {loadingCalendar ? (
+              <div className="flex items-center gap-2 px-4 py-3 bg-surface-secondary/50 rounded-xl">
+                <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
+                <span className="text-xs text-text-muted">Syncing calendar...</span>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {upcoming.map((e) => {
+                  const now = isHappeningNow(e.startTime, e.endTime)
+                  const links = e.meetingLinks ?? (e.meetingLink ? [{ url: e.meetingLink, platform: e.platform ?? 'other' } as MeetingLink] : [])
+                  return (
+                    <div
+                      key={e.eventId}
+                      className={`px-4 py-4 rounded-xl transition-colors ${
+                        now ? 'bg-now-bg border border-now-border' : 'bg-surface-secondary'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-text-primary truncate">
+                            {e.title}
+                          </p>
+                          <p className="text-xs text-text-secondary mt-0.5">
+                            {formatTimeRange(e.startTime, e.endTime)}
+                            {e.attendees.length > 0 && (
+                              <> &middot; {e.attendees.filter(a => !a.email?.includes('resource')).map(a => a.name || a.email.split('@')[0]).slice(0, 4).join(', ')}{e.attendees.length > 4 ? ` +${e.attendees.length - 4}` : ''}</>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                          {links.map((link, i) => (
+                            <PlatformButton key={i} link={link} />
+                          ))}
+                          {now && (
+                            <span className="flex items-center gap-1.5 text-xs text-now-text">
+                              <span className="w-1.5 h-1.5 rounded-full bg-now-text animate-pulse" />
+                              Now
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0 mt-0.5">
-                      {links.map((link, i) => (
-                        <PlatformButton key={i} link={link} />
-                      ))}
-                      {now && (
-                        <span className="flex items-center gap-1.5 text-xs text-now-text">
-                          <span className="w-1.5 h-1.5 rounded-full bg-now-text animate-pulse" />
-                          Now
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <p className="text-xs text-text-muted px-4 py-2">No more meetings today</p>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Impromptu recording card */}
+        {hasDeepgramKey && (
+          <ImpromptuCard
+            isRecording={isRecording}
+            isProcessing={isProcessing}
+            sessionInfo={sessionInfo}
+            hasUpcoming={upcoming.length > 0}
+            onError={(msg) => addToast(msg, 'error')}
+          />
         )}
       </div>}
 
@@ -329,35 +465,62 @@ export default function MeetingList({ onSelect }: { onSelect: (id: string) => vo
         </div>
       ) : meetings.length > 0 ? (
         Object.entries(grouped).map(([date, items]) => (
-          <div key={date} className="mb-8">
-            <h3 className="text-xs font-medium text-text-secondary mb-4">
+          <div key={date} className="mb-6">
+            <h3 className="text-xs font-medium text-text-secondary mb-2">
               {formatDate(items[0].startTime)}
             </h3>
-            <div className="space-y-1.5">
-              {items.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => onSelect(m.id)}
-                  className="w-full text-left px-4 py-4 rounded-xl hover:bg-surface-secondary transition-colors group"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-text-primary truncate group-hover:text-text-primary">
-                        {m.title}
-                      </p>
-                      <p className="text-xs text-text-secondary mt-0.5">
-                        {formatTime(m.startTime)} &middot; {formatDuration(m.duration)}
-                        {m.speakers.length > 0 && (
-                          <> &middot; {m.speakers.map((s) => s.name).join(', ')}</>
+            <div className="space-y-0.5">
+              {items.map((m) => {
+                const isUnscheduled = m.title.startsWith('Unscheduled call')
+                const displayTitle = isUnscheduled ? 'Unscheduled recording' : m.title
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => onSelect(m.id)}
+                    className="w-full text-left px-4 py-3 rounded-xl hover:bg-surface-secondary cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          {isUnscheduled ? (
+                            <svg className="w-3.5 h-3.5 text-text-muted shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                            </svg>
+                          ) : (
+                            <svg className="w-3.5 h-3.5 text-text-muted shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="4" width="18" height="18" rx="2" />
+                              <line x1="16" y1="2" x2="16" y2="6" />
+                              <line x1="8" y1="2" x2="8" y2="6" />
+                              <line x1="3" y1="10" x2="21" y2="10" />
+                            </svg>
+                          )}
+                          <p className="text-sm font-medium text-text-primary truncate">
+                            {displayTitle}
+                          </p>
+                        </div>
+                        <p className="text-xs text-text-secondary mt-0.5 ml-5">
+                          {formatTime(m.startTime)} &middot; {formatDuration(m.duration)}
+                          {m.speakers.length > 0 && (
+                            <> &middot; {m.speakers.map((s) => s.name).join(', ')}</>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {m.actionCount > 0 && (
+                          <span className="text-xs text-success font-medium">{m.actionCount} action{m.actionCount !== 1 ? 's' : ''}</span>
                         )}
-                      </p>
+                        {!m.summarized && (
+                          <span className="text-xs text-text-muted">Not summarized</span>
+                        )}
+                        <svg className="w-4 h-4 text-text-muted/0 group-hover:text-text-muted transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </div>
                     </div>
-                    {m.summarized && (
-                      <span className="text-xs text-accent shrink-0 mt-0.5">Summarized</span>
-                    )}
-                  </div>
-                </button>
-              ))}
+                  </button>
+                )
+              })}
             </div>
           </div>
         ))

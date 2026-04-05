@@ -375,7 +375,7 @@ export class PipelineOrchestrator {
             speakers
           )
           writeSummaryFiles(metadata, summary, actions)
-          markSummarized(metadata.id)
+          markSummarized(metadata.id, actions.length)
           metadata.summarized = true
           log.info(
             `[Pipeline] Summarization complete: ${summary.topics.length} topics, ` +

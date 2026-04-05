@@ -49,6 +49,8 @@ export function setupTray(
       statusLabel = '⏺ Recording...'
     } else if (isProcessing) {
       statusLabel = '⏳ Processing...'
+    } else if (hasSecret('quietclaw:deepgram:api_key')) {
+      statusLabel = '👂 Listening for meetings'
     } else {
       statusLabel = 'QuietClaw — Idle'
     }
@@ -62,7 +64,14 @@ export function setupTray(
       },
       { type: 'separator' },
       {
-        label: isRecording ? 'Stop Recording' : 'Start Recording',
+        label: 'View Meetings & Transcripts',
+        click: () => {
+          mainWindow?.show()
+          mainWindow?.focus()
+        }
+      },
+      {
+        label: isRecording ? 'Stop Recording' : 'Record Manually...',
         enabled: !isProcessing && hasDeepgramKey,
         click: async () => {
           if (isRecording) {
@@ -97,13 +106,6 @@ export function setupTray(
           ]
         : []),
       { type: 'separator' },
-      {
-        label: 'Open QuietClaw',
-        click: () => {
-          mainWindow?.show()
-          mainWindow?.focus()
-        }
-      },
       {
         label: 'Quit',
         click: () => {
@@ -146,10 +148,10 @@ export function setupTray(
           visible = !visible
           tray?.setImage(visible ? iconIdle : nativeImage.createEmpty())
         }, 800)
-        mainWindow?.webContents.send('recording-status', { recording: false })
+        mainWindow?.webContents.send('recording-status', { recording: false, processing: true })
       } else {
         tray?.setImage(iconIdle)
-        mainWindow?.webContents.send('recording-status', { recording: false })
+        mainWindow?.webContents.send('recording-status', { recording: false, processing: false })
       }
       updateMenu()
     },

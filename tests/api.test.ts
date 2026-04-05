@@ -79,7 +79,11 @@ vi.mock('../src/main/storage/files', () => ({
   }),
   readSummary: vi.fn().mockReturnValue(null),
   readActions: vi.fn().mockReturnValue(null),
-  writeSummaryFiles: vi.fn()
+  writeSummaryFiles: vi.fn(),
+  toLocalDateString: (date: Date | string) => {
+    const d = typeof date === 'string' ? new Date(date) : date
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
 }))
 
 // Mock config

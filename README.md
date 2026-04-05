@@ -217,6 +217,7 @@ cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json | jq '.'
 ## Roadmap
 
 ### Phase 2
+- **Contacts & speaker consistency** — autocomplete from past speaker names, person card in search, consistent wikilinks across meetings
 - **Additional STT providers** — AssemblyAI, OpenAI Whisper API, local whisper.cpp
 - **Additional summarizers** — OpenAI GPT, Ollama (local)
 - **Real-time transcript display** during calls
@@ -224,7 +225,7 @@ cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json | jq '.'
 - **Windows support** — WASAPI loopback capture (architecture is already abstracted)
 
 ### Phase 3
-- **Voice fingerprint database** — automatic speaker recognition that learns over time
+- **Speaker recognition** — automatic speaker identification that learns from manual mappings over time
 - **Cross-meeting intelligence** — "What has X discussed across the last 10 meetings?"
 - **Plugin system** for custom post-processing
 

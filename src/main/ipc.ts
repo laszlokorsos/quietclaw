@@ -24,6 +24,7 @@ import { readMeetingMetadata, readTranscript, readSummary, readActions, writeSum
 import { markSummarized, indexMeeting } from './storage/db'
 import { AnthropicSummarizer } from './pipeline/summarizer/anthropic'
 import { recoverAll } from './pipeline/recovery'
+import { notifyRecordingStarted, notifyRecordingStopped } from './api/ws'
 import type { AudioCaptureProvider } from './audio/types'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
@@ -110,6 +111,22 @@ export function setupIpcHandlers(
     return orchestrator?.getSessionInfo() ?? null
   })
 
+  ipcMain.handle('pipeline:startRecording', async () => {
+    if (!orchestrator) throw new Error('Pipeline not available')
+    await orchestrator.startRecording('Me')
+    notifyRecordingStarted(orchestrator.getSessionId() ?? '')
+    log.info('[IPC] Recording started from renderer')
+    return true
+  })
+
+  ipcMain.handle('pipeline:stopRecording', async () => {
+    if (!orchestrator) throw new Error('Pipeline not available')
+    const result = await orchestrator.stopRecording()
+    notifyRecordingStopped(result.metadata.id)
+    log.info(`[IPC] Recording stopped from renderer — ${result.transcript.segments.length} segments`)
+    return true
+  })
+
   // Secrets (check existence only — never send secret values to renderer)
   ipcMain.handle('secrets:hasDeepgramKey', () => {
     return getDeepgramApiKey() !== null
@@ -172,7 +189,8 @@ export function setupIpcHandlers(
       date: r.date,
       speakers: typeof r.speakers === 'string' ? JSON.parse(r.speakers as string) : r.speakers,
       summarized: r.summarized === 1,
-      sttProvider: r.stt_provider
+      sttProvider: r.stt_provider,
+      actionCount: (r.action_count as number) ?? 0
     }))
 
   ipcMain.handle('meetings:list', (_event, limit?: number, offset?: number) => {
@@ -225,7 +243,7 @@ export function setupIpcHandlers(
     const result = await summarizer.summarize(transcript.segments, metadata.title, speakers)
 
     writeSummaryFiles(metadata, result.summary, result.actions)
-    markSummarized(id)
+    markSummarized(id, result.actions.length)
 
     log.info(`[IPC] Summarized meeting ${id}`)
     return { summary: result.summary, actions: result.actions }

@@ -17,6 +17,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import log from 'electron-log/main'
 import type { MeetingMetadata } from './models'
+import { toLocalDateString } from './files'
 
 const DB_DIR = path.join(os.homedir(), '.quietclaw')
 const DB_PATH = path.join(DB_DIR, 'quietclaw.db')
@@ -91,6 +92,14 @@ export function initDatabase(): void {
     );
   `)
 
+  // Migrate: add action_count column if missing
+  try {
+    db.prepare('SELECT action_count FROM meetings LIMIT 1').get()
+  } catch {
+    db.exec('ALTER TABLE meetings ADD COLUMN action_count INTEGER NOT NULL DEFAULT 0')
+    log.info('[DB] Added action_count column')
+  }
+
   // Migrate: if FTS table was created as contentless, recreate and re-index
   try {
     const ftsInfo = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'meetings_fts'").get() as { sql: string } | undefined
@@ -119,6 +128,49 @@ export function initDatabase(): void {
     log.info(`[DB] FTS out of sync (${ftsCount} indexed / ${meetingCount} meetings) — re-indexing`)
     db.exec('DELETE FROM meetings_fts')
     reindexFts(db)
+  }
+
+  // Migrate: recompute date column from start_time (UTC → local timezone fix)
+  const dateRows = db.prepare('SELECT id, start_time FROM meetings').all() as Array<{ id: string; start_time: string }>
+  if (dateRows.length > 0) {
+    const updateDate = db.prepare('UPDATE meetings SET date = ? WHERE id = ?')
+    const migrateDates = db.transaction(() => {
+      let fixed = 0
+      for (const row of dateRows) {
+        const localDate = toLocalDateString(row.start_time)
+        updateDate.run(localDate, row.id)
+        fixed++
+      }
+      if (fixed > 0) log.info(`[DB] Recomputed ${fixed} meeting dates (local timezone)`)
+    })
+    migrateDates()
+  }
+
+  // Backfill action_count from actions.json on disk for summarized meetings with count=0
+  const zeroActionRows = db.prepare(
+    'SELECT id, meeting_dir FROM meetings WHERE summarized = 1 AND action_count = 0'
+  ).all() as Array<{ id: string; meeting_dir: string }>
+  if (zeroActionRows.length > 0) {
+    const updateAction = db.prepare('UPDATE meetings SET action_count = ? WHERE id = ?')
+    const backfill = db.transaction(() => {
+      let filled = 0
+      for (const row of zeroActionRows) {
+        try {
+          const actionsPath = path.join(row.meeting_dir, 'actions.json')
+          if (fs.existsSync(actionsPath)) {
+            const actions = JSON.parse(fs.readFileSync(actionsPath, 'utf-8'))
+            if (Array.isArray(actions) && actions.length > 0) {
+              updateAction.run(actions.length, row.id)
+              filled++
+            }
+          }
+        } catch {
+          // Skip unreadable actions files
+        }
+      }
+      if (filled > 0) log.info(`[DB] Backfilled action_count for ${filled} meetings`)
+    })
+    backfill()
   }
 
   log.info(`[DB] Database initialized at ${DB_PATH}`)
@@ -150,7 +202,7 @@ export function indexMeeting(
   transcriptText?: string
 ): void {
   const d = getDb()
-  const date = new Date(metadata.startTime).toISOString().slice(0, 10)
+  const date = toLocalDateString(metadata.startTime)
   const speakersJson = JSON.stringify(metadata.speakers)
   const speakersText = metadata.speakers.map((s) => s.name).join(' ')
 
@@ -195,9 +247,9 @@ export function indexMeeting(
   log.info(`[DB] Indexed meeting ${metadata.id}: "${metadata.title}"`)
 }
 
-/** Update the summarized flag for a meeting */
-export function markSummarized(meetingId: string): void {
-  getDb().prepare('UPDATE meetings SET summarized = 1 WHERE id = ?').run(meetingId)
+/** Update the summarized flag and action count for a meeting */
+export function markSummarized(meetingId: string, actionCount = 0): void {
+  getDb().prepare('UPDATE meetings SET summarized = 1, action_count = ? WHERE id = ?').run(actionCount, meetingId)
 }
 
 /** Delete a meeting from the index */
@@ -250,7 +302,7 @@ export function getMeetingsByDate(date: string): MeetingRow[] {
 
 /** Get today's meetings */
 export function getTodayMeetings(): MeetingRow[] {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = toLocalDateString(new Date())
   return getMeetingsByDate(today)
 }
 

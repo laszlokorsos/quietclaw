@@ -39,6 +39,7 @@ import {
 import { markSummarized } from '../storage/db'
 import { AnthropicSummarizer } from '../pipeline/summarizer/anthropic'
 import { notifyMeetingSummarized } from './ws'
+import { toLocalDateString } from '../storage/files'
 
 export function createRoutes(): Router {
   const router = Router()
@@ -78,7 +79,7 @@ export function createRoutes(): Router {
       const rows = getTodayMeetings()
       res.json({
         meetings: rows.map(formatMeetingRow),
-        date: new Date().toISOString().slice(0, 10)
+        date: toLocalDateString(new Date())
       })
     } catch (err) {
       log.error('[API] GET /meetings/today error:', err)
@@ -222,7 +223,7 @@ export function createRoutes(): Router {
       )
 
       writeSummaryFiles(metadata, summary, actions)
-      markSummarized(req.params.id)
+      markSummarized(req.params.id, actions.length)
       notifyMeetingSummarized(req.params.id, metadata.title, summary.topics.length, actions.length)
 
       res.json({ summary, actions })

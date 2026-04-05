@@ -38,6 +38,7 @@ export default function App() {
   const [view, setView] = useState<View>('meetings')
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null)
   const [isRecording, setIsRecording] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null)
   const { preference, setTheme } = useTheme()
@@ -75,10 +76,12 @@ export default function App() {
     ]).then(([state, info]: [string, SessionInfo | null]) => {
       const recording = state === 'recording'
       setIsRecording(recording)
+      setIsProcessing(state === 'processing')
       setSessionInfo(recording ? info : null)
     })
-    const unsub = api.on('recording-status', (status: { recording: boolean; sessionInfo?: SessionInfo }) => {
+    const unsub = api.on('recording-status', (status: { recording: boolean; processing?: boolean; sessionInfo?: SessionInfo }) => {
       setIsRecording(status.recording)
+      setIsProcessing(status.processing ?? false)
       setSessionInfo(status.recording ? (status.sessionInfo ?? null) : null)
     })
     return unsub
@@ -140,7 +143,12 @@ export default function App() {
               onBack={() => setSelectedMeetingId(null)}
             />
           ) : (
-            <MeetingList onSelect={(id) => setSelectedMeetingId(id)} />
+            <MeetingList
+              onSelect={(id) => setSelectedMeetingId(id)}
+              isRecording={isRecording}
+              isProcessing={isProcessing}
+              sessionInfo={sessionInfo}
+            />
           )}
         </div>
       </main>

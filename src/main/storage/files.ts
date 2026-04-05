@@ -26,6 +26,15 @@ import type {
   ActionItem
 } from './models'
 
+/** Format a date as YYYY-MM-DD in the local timezone (not UTC) */
+export function toLocalDateString(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 /**
  * Write a file atomically: write to a temp file in the same directory,
  * then rename to the final path.
@@ -40,8 +49,7 @@ function atomicWrite(filePath: string, content: string): void {
 /** Get the meeting directory for a given date and slug */
 export function getMeetingDir(startTime: string, slug: string): string {
   const config = loadConfig()
-  const date = new Date(startTime)
-  const dateStr = date.toISOString().slice(0, 10) // YYYY-MM-DD
+  const dateStr = toLocalDateString(startTime)
   return path.join(config.general.data_dir, dateStr, slug)
 }
 
@@ -307,7 +315,7 @@ function detectPlatform(metadata: MeetingMetadata): string | undefined {
 
 /** Build YAML frontmatter block for a meeting */
 function buildFrontmatter(metadata: MeetingMetadata, extra?: Record<string, unknown>): string {
-  const date = new Date(metadata.startTime).toISOString().slice(0, 10)
+  const date = toLocalDateString(metadata.startTime)
   const participants = metadata.speakers.map((s) => s.name)
   const platform = detectPlatform(metadata)
 

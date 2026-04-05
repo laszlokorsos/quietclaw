@@ -93,7 +93,8 @@ describe.skipIf(!canUseSqlite)('Database', () => {
   })
 
   function indexMeeting(metadata: MeetingMetadata, meetingDir: string, transcriptText = '') {
-    const date = new Date(metadata.startTime).toISOString().slice(0, 10)
+    const d = new Date(metadata.startTime)
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const speakersJson = JSON.stringify(metadata.speakers)
     const speakersText = metadata.speakers.map(s => s.name).join(' ')
 
