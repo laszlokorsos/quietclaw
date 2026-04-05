@@ -1,0 +1,39 @@
+{
+  "executive_summary": "Weekly standup covering API rate limiting completion, onboarding redesign progress, and a password reset token expiry bug. The team coordinated on potential overlap between mail queue latency and webhook delivery, and aligned on PR review timelines.",
+  "topics": [
+    {
+      "topic": "API Rate Limiting",
+      "participants": ["Speaker A", "Laszlo Korsos"],
+      "summary": "Rate limiting is deployed to staging, handling 500 req/s under load tests. Next step is webhook retry logic with exponential backoff and jitter, max 5 retries over 24 hours."
+    },
+    {
+      "topic": "Onboarding Redesign",
+      "participants": ["Speaker B", "Laszlo Korsos"],
+      "summary": "New onboarding flow nearly complete, pending email verification wiring. A bug was found in the password reset flow where tokens expire before emails arrive due to mail queue latency."
+    },
+    {
+      "topic": "Password Reset Token Expiry",
+      "participants": ["Speaker B", "Laszlo Korsos"],
+      "summary": "Current 15-minute token expiry is too short when the mail queue is slow. Decision made to extend to 1 hour since tokens are single-use and invalidated after use."
+    },
+    {
+      "topic": "Mail Queue and Webhook Overlap",
+      "participants": ["Speaker A", "Speaker B"],
+      "summary": "Identified potential overlap between mail queue latency and webhook delivery reliability. Jordan will check queue metrics as part of the webhook retry work."
+    },
+    {
+      "topic": "Billing Migration",
+      "participants": ["Laszlo Korsos"],
+      "summary": "Alex is finishing the Stripe API v1 to v2 migration, expected to complete by end of day. Will review team PRs the following morning."
+    }
+  ],
+  "decisions": [
+    "Extend password reset token expiry from 15 minutes to 1 hour",
+    "Use exponential backoff with jitter for webhook retries, max 5 retries over 24 hours",
+    "Log all webhook retry attempts for debugging delivery failures",
+    "File a separate issue to investigate mail queue latency"
+  ],
+  "sentiment": "Productive and collaborative. Quick sync with clear updates, good cross-team awareness of overlapping issues.",
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5-20251001"
+}

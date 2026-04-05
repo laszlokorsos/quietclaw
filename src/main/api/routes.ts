@@ -14,10 +14,12 @@
  *   POST /meetings/:id/actions/:aid     — Update action item status
  *   DELETE /meetings/:id                — Delete a meeting and its files
  *   GET  /config                        — Current config (safe fields only)
+ *   GET  /openapi.json                  — OpenAPI 3.0 specification
  */
 
 import { Router } from 'express'
 import log from 'electron-log/main'
+import { openApiSpec } from './openapi'
 import { loadConfig } from '../config/settings'
 import {
   listMeetings,
@@ -51,6 +53,11 @@ export function createRoutes(): Router {
       version: '0.1.0',
       uptime: process.uptime()
     })
+  })
+
+  // OpenAPI specification
+  router.get('/openapi.json', (_req, res) => {
+    res.json(openApiSpec)
   })
 
   // List meetings (paginated)

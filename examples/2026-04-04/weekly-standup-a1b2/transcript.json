@@ -1,0 +1,134 @@
+{
+  "segments": [
+    {
+      "speaker": "Laszlo Korsos",
+      "speakerId": 0,
+      "source": "microphone",
+      "start": 0.0,
+      "end": 4.2,
+      "text": "Alright, let's get started. Jordan, you want to go first?",
+      "confidence": 0.97
+    },
+    {
+      "speaker": "Speaker A",
+      "speakerId": 1,
+      "source": "system",
+      "start": 4.8,
+      "end": 18.5,
+      "text": "Sure. So I finished the API rate limiting yesterday. It's deployed to staging. I ran the load tests and we're handling 500 requests per second without any issues. Today I'm going to start on the webhook retry logic.",
+      "confidence": 0.95
+    },
+    {
+      "speaker": "Laszlo Korsos",
+      "speakerId": 0,
+      "source": "microphone",
+      "start": 19.1,
+      "end": 23.4,
+      "text": "Nice. Any blockers on the webhook stuff?",
+      "confidence": 0.98
+    },
+    {
+      "speaker": "Speaker A",
+      "speakerId": 1,
+      "source": "system",
+      "start": 23.9,
+      "end": 34.2,
+      "text": "Not really. I need to decide on the backoff strategy. I'm thinking exponential with jitter, max five retries over twenty-four hours. Does that sound reasonable?",
+      "confidence": 0.94
+    },
+    {
+      "speaker": "Laszlo Korsos",
+      "speakerId": 0,
+      "source": "microphone",
+      "start": 34.8,
+      "end": 41.0,
+      "text": "Yeah that's solid. Make sure we log each retry attempt so we can debug delivery failures. Priya, how about you?",
+      "confidence": 0.96
+    },
+    {
+      "speaker": "Speaker B",
+      "speakerId": 2,
+      "source": "system",
+      "start": 42.1,
+      "end": 58.3,
+      "text": "I've been working on the onboarding redesign. The new flow is almost done, just need to wire up the email verification step. I also found a bug in the password reset flow where the token expires before the email arrives if the mail queue is backed up.",
+      "confidence": 0.93
+    },
+    {
+      "speaker": "Laszlo Korsos",
+      "speakerId": 0,
+      "source": "microphone",
+      "start": 58.9,
+      "end": 62.5,
+      "text": "Oh that's a good catch. How long are the tokens valid for right now?",
+      "confidence": 0.97
+    },
+    {
+      "speaker": "Speaker B",
+      "speakerId": 2,
+      "source": "system",
+      "start": 63.0,
+      "end": 71.8,
+      "text": "Fifteen minutes. I think we should bump it to an hour. The security risk is low since it's a one-time use token and we invalidate it after use anyway.",
+      "confidence": 0.95
+    },
+    {
+      "speaker": "Laszlo Korsos",
+      "speakerId": 0,
+      "source": "microphone",
+      "start": 72.3,
+      "end": 78.1,
+      "text": "Agreed. Go ahead and bump it to an hour. File an issue for the mail queue latency too, we should look into that separately.",
+      "confidence": 0.96
+    },
+    {
+      "speaker": "Speaker A",
+      "speakerId": 1,
+      "source": "system",
+      "start": 78.6,
+      "end": 87.2,
+      "text": "Actually that might be related to the webhook stuff. If we're overloading the mail service that could affect delivery webhooks too. I'll check the queue metrics when I'm in there.",
+      "confidence": 0.92
+    },
+    {
+      "speaker": "Laszlo Korsos",
+      "speakerId": 0,
+      "source": "microphone",
+      "start": 87.8,
+      "end": 98.5,
+      "text": "Good thinking. Alright, my update. I'm wrapping up the billing migration. We're moving from Stripe API v1 to v2. Should be done by end of day. Then I'll review both your PRs tomorrow morning.",
+      "confidence": 0.97
+    },
+    {
+      "speaker": "Speaker B",
+      "speakerId": 2,
+      "source": "system",
+      "start": 99.1,
+      "end": 103.7,
+      "text": "Sounds good. My PR should be up by end of day today.",
+      "confidence": 0.96
+    },
+    {
+      "speaker": "Speaker A",
+      "speakerId": 1,
+      "source": "system",
+      "start": 104.2,
+      "end": 108.0,
+      "text": "Same here. The rate limiting PR is already up, I just need to add a couple more tests.",
+      "confidence": 0.95
+    },
+    {
+      "speaker": "Laszlo Korsos",
+      "speakerId": 0,
+      "source": "microphone",
+      "start": 108.5,
+      "end": 114.3,
+      "text": "Perfect. Anything else? No? Alright, let's get back to it. Talk to you all tomorrow.",
+      "confidence": 0.98
+    }
+  ],
+  "duration": 1472,
+  "provider": "deepgram",
+  "model": "nova-2",
+  "language": "en"
+}

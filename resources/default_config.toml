@@ -1,5 +1,5 @@
 # QuietClaw Configuration
-# See https://github.com/laszlo/quietclaw for documentation
+# See https://github.com/laszlokorsos/quietclaw for documentation
 
 [general]
 data_dir = "~/.quietclaw/meetings"

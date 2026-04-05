@@ -133,7 +133,7 @@ brew install node python3   # Python needed for node-gyp (native addon build)
 npm install -g pnpm
 
 # Setup
-git clone https://github.com/laszlo/quietclaw.git
+git clone https://github.com/laszlokorsos/quietclaw.git
 cd quietclaw
 pnpm install
 

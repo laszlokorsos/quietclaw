@@ -56,7 +56,7 @@ Call ends (window closed or mic deactivated)
 ### Install & Run
 
 ```bash
-git clone https://github.com/laszlo/quietclaw.git
+git clone https://github.com/laszlokorsos/quietclaw.git
 cd quietclaw
 pnpm install
 pnpm run build:native    # Build the native Core Audio addon
@@ -122,6 +122,9 @@ The local API runs on `http://localhost:19832` when QuietClaw is running.
 | `POST` | `/api/v1/meetings/:id/summarize` | Trigger summarization |
 | `POST` | `/api/v1/meetings/:id/actions/:aid` | Update action status |
 | `DELETE` | `/api/v1/meetings/:id` | Delete meeting and files |
+| `GET` | `/api/v1/openapi.json` | OpenAPI 3.0 specification |
+
+Full schema documentation is available at the OpenAPI endpoint: `curl http://localhost:19832/api/v1/openapi.json`
 
 ### Example
 
@@ -152,7 +155,7 @@ Each meeting produces a directory under `~/.quietclaw/meetings/`:
     actions.json          # Action items with assignees and priority
 ```
 
-Files are plain JSON and Markdown — readable by any tool, diffable in git, and queryable with `jq`.
+Files are plain JSON and Markdown — readable by any tool, diffable in git, and queryable with `jq`. See [`examples/`](examples/) for complete sample output files.
 
 ### Obsidian & Knowledge Graph Compatible
 

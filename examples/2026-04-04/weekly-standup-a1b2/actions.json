@@ -1,0 +1,67 @@
+[
+  {
+    "id": "act-001",
+    "description": "Implement webhook retry logic with exponential backoff and jitter (max 5 retries over 24 hours)",
+    "assignee": "Speaker A",
+    "priority": "high",
+    "agent_executable": false,
+    "status": "pending"
+  },
+  {
+    "id": "act-002",
+    "description": "Add retry attempt logging to webhook delivery system",
+    "assignee": "Speaker A",
+    "priority": "medium",
+    "agent_executable": false,
+    "status": "pending"
+  },
+  {
+    "id": "act-003",
+    "description": "Check mail queue metrics for latency issues that may affect webhook delivery",
+    "assignee": "Speaker A",
+    "priority": "medium",
+    "agent_executable": false,
+    "status": "pending"
+  },
+  {
+    "id": "act-004",
+    "description": "Extend password reset token expiry from 15 minutes to 1 hour",
+    "assignee": "Speaker B",
+    "priority": "high",
+    "agent_executable": true,
+    "status": "pending"
+  },
+  {
+    "id": "act-005",
+    "description": "Wire up email verification step in the new onboarding flow",
+    "assignee": "Speaker B",
+    "priority": "high",
+    "agent_executable": false,
+    "status": "pending"
+  },
+  {
+    "id": "act-006",
+    "description": "File an issue to investigate mail queue latency",
+    "assignee": "Speaker B",
+    "priority": "medium",
+    "agent_executable": true,
+    "status": "pending"
+  },
+  {
+    "id": "act-007",
+    "description": "Complete Stripe API v1 to v2 billing migration",
+    "assignee": "Laszlo Korsos",
+    "priority": "high",
+    "agent_executable": false,
+    "status": "pending"
+  },
+  {
+    "id": "act-008",
+    "description": "Review Jordan's rate limiting PR and Priya's onboarding PR",
+    "assignee": "Laszlo Korsos",
+    "priority": "medium",
+    "agent_executable": false,
+    "status": "pending",
+    "due_date": "2026-04-05"
+  }
+]
