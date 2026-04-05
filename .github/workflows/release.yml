@@ -28,7 +28,7 @@ jobs:
         run: pnpm run build:native
 
       - name: Build and package
-        run: electron-vite build && electron-builder --publish never
+        run: npx electron-vite build && npx electron-builder --publish never
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
