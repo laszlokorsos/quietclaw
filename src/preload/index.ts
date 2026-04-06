@@ -30,6 +30,7 @@ export interface QuietClawAPI {
       sessionId: string
       startTime: string
       title: string
+      calendarEventId?: string
       calendarEvent?: {
         title: string
         attendees: Array<{ name: string; email: string }>
@@ -42,6 +43,7 @@ export interface QuietClawAPI {
   }
   dialog: {
     selectFolder: () => Promise<string | null>
+    openFolder: (path: string) => Promise<string>
   }
   secrets: {
     hasDeepgramKey: () => Promise<boolean>
@@ -99,7 +101,8 @@ const api: QuietClawAPI = {
     stopRecording: () => ipcRenderer.invoke('pipeline:stopRecording')
   },
   dialog: {
-    selectFolder: () => ipcRenderer.invoke('dialog:selectFolder')
+    selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
+    openFolder: (path: string) => ipcRenderer.invoke('dialog:openFolder', path)
   },
   secrets: {
     hasDeepgramKey: () => ipcRenderer.invoke('secrets:hasDeepgramKey'),

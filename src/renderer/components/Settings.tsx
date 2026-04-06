@@ -372,7 +372,14 @@ export default function Settings({
             QuietClaw v0.1.0 — The silent claw that listens.
           </p>
           <p className="text-xs text-text-muted mt-0.5">
-            Data: ~/.quietclaw/meetings &middot; API: localhost:19832
+            <button
+              onClick={() => dataDir && api?.dialog.openFolder(dataDir)}
+              className="text-text-muted hover:text-text-secondary hover:underline transition-colors cursor-pointer"
+              title={`Open ${dataDir} in Finder`}
+            >
+              Open meeting data
+            </button>
+            {' '}&middot; API: localhost:19832
           </p>
         </div>
       </section>

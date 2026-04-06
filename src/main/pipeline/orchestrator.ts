@@ -96,6 +96,7 @@ export class PipelineOrchestrator {
     sessionId: string
     startTime: string
     title: string
+    calendarEventId?: string
     calendarEvent?: {
       title: string
       attendees: Array<{ name: string; email: string }>
@@ -113,6 +114,7 @@ export class PipelineOrchestrator {
       sessionId: this.sessionId,
       startTime: this.startTime.toISOString(),
       title,
+      calendarEventId: this.calendarMatch?.event.eventId,
       calendarEvent: this.calendarMatch
         ? {
             title: this.calendarMatch.event.title,

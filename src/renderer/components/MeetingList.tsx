@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import RecoveryBanner from './RecoveryBanner'
 import { useToast } from '../contexts/ToastContext'
 import type { SessionInfo } from '../App'
@@ -106,53 +106,82 @@ function PlatformButton({ link }: { link: MeetingLink }) {
   )
 }
 
-/** Impromptu / unscheduled recording card */
+/** Hook: elapsed seconds since a given start time */
+function useElapsed(startTime: string | undefined, active: boolean): string {
+  const [elapsed, setElapsed] = useState(0)
+  const startRef = useRef<number>(0)
+
+  useEffect(() => {
+    if (!active) { setElapsed(0); return }
+    startRef.current = startTime ? new Date(startTime).getTime() : Date.now()
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startRef.current) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [active, startTime])
+
+  const mins = Math.floor(elapsed / 60)
+  const secs = elapsed % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+/** Reusable stop-recording button */
+function StopButton({ onError }: { onError: (msg: string) => void }) {
+  const [loading, setLoading] = useState(false)
+  const handleStop = useCallback(async () => {
+    if (loading) return
+    setLoading(true)
+    try {
+      await api.pipeline.stopRecording()
+    } catch (err: any) {
+      onError(err?.message ?? 'Failed to stop recording')
+    }
+    setLoading(false)
+  }, [loading, onError])
+
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); handleStop() }}
+      disabled={loading}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-recording/15 text-recording text-sm font-medium hover:bg-recording/25 transition-colors"
+    >
+      <svg className="w-3 h-3" viewBox="0 0 12 12" fill="currentColor">
+        <rect x="1" y="1" width="10" height="10" rx="1.5" />
+      </svg>
+      Stop
+    </button>
+  )
+}
+
+/** Impromptu / unscheduled recording card — shown only when recording has no calendar match */
 function ImpromptuCard({
   isRecording,
   isProcessing,
   sessionInfo,
   hasUpcoming,
+  recordingMatchedToEvent,
   onError
 }: {
   isRecording: boolean
   isProcessing: boolean
   sessionInfo: SessionInfo | null
   hasUpcoming: boolean
+  recordingMatchedToEvent: boolean
   onError: (msg: string) => void
 }) {
   const [loading, setLoading] = useState(false)
-  const [elapsed, setElapsed] = useState(0)
-  const startRef = useRef<number>(0)
+  const timeStr = useElapsed(sessionInfo?.startTime, isRecording && !recordingMatchedToEvent)
 
-  useEffect(() => {
-    if (!isRecording) { setElapsed(0); return }
-    startRef.current = sessionInfo?.startTime
-      ? new Date(sessionInfo.startTime).getTime()
-      : Date.now()
-    const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startRef.current) / 1000))
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [isRecording, sessionInfo?.startTime])
-
-  const handleClick = async () => {
-    if (isProcessing || loading) return
+  const handleStart = async () => {
+    if (loading) return
     setLoading(true)
     try {
-      if (isRecording) {
-        await api.pipeline.stopRecording()
-      } else {
-        await api.pipeline.startRecording()
-      }
+      await api.pipeline.startRecording()
     } catch (err: any) {
       onError(err?.message ?? 'Recording failed')
     }
     setLoading(false)
   }
-
-  const mins = Math.floor(elapsed / 60)
-  const secs = elapsed % 60
-  const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`
 
   if (isProcessing) {
     return (
@@ -169,6 +198,9 @@ function ImpromptuCard({
     )
   }
 
+  // Recording is matched to a calendar event card — don't show here
+  if (isRecording && recordingMatchedToEvent) return null
+
   if (isRecording) {
     return (
       <div className={`px-4 py-4 rounded-xl bg-recording/8 border border-recording/20 ${hasUpcoming ? 'mt-1.5' : ''}`}>
@@ -176,20 +208,9 @@ function ImpromptuCard({
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-recording animate-pulse" />
             <span className="text-sm font-medium text-recording-text">{timeStr}</span>
-            <span className="text-sm text-text-secondary">
-              {sessionInfo?.title ?? 'Unscheduled recording'}
-            </span>
+            <span className="text-sm text-text-secondary">Unscheduled meeting</span>
           </div>
-          <button
-            onClick={handleClick}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-recording/15 text-recording text-sm font-medium hover:bg-recording/25 transition-colors"
-          >
-            <svg className="w-3 h-3" viewBox="0 0 12 12" fill="currentColor">
-              <rect x="1" y="1" width="10" height="10" rx="1.5" />
-            </svg>
-            Stop
-          </button>
+          <StopButton onError={onError} />
         </div>
       </div>
     )
@@ -199,12 +220,184 @@ function ImpromptuCard({
     <div className={`mt-3 ${hasUpcoming ? '' : 'mt-0'}`}>
       <span className="text-xs text-text-muted">Recording didn't start? </span>
       <button
-        onClick={handleClick}
+        onClick={handleStart}
         disabled={loading}
         className="text-xs text-text-secondary hover:text-text-primary hover:underline cursor-pointer transition-colors"
       >
         Start manually
       </button>
+    </div>
+  )
+}
+
+/** Calendar event card that shows recording state when this event is being recorded */
+function RecordingEventCard({
+  event,
+  sessionInfo,
+  calendarAccountCount,
+  onError
+}: {
+  event: CalendarEvent
+  sessionInfo: SessionInfo
+  calendarAccountCount: number
+  onError: (msg: string) => void
+}) {
+  const timeStr = useElapsed(sessionInfo.startTime, true)
+  const links = event.meetingLinks ?? (event.meetingLink ? [{ url: event.meetingLink, platform: event.platform ?? 'other' } as MeetingLink] : [])
+
+  return (
+    <div className="px-4 py-4 rounded-xl bg-recording/8 border border-recording/20 transition-colors">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-recording animate-pulse shrink-0" />
+            <p className="text-sm font-medium text-text-primary truncate">{event.title}</p>
+            <span className="text-sm font-medium text-recording-text shrink-0">{timeStr}</span>
+          </div>
+          <p className="text-xs text-text-secondary mt-0.5 ml-4">
+            {formatTimeRange(event.startTime, event.endTime)}
+            {event.attendees.length > 0 && (
+              <> &middot; {event.attendees.filter(a => !a.email?.includes('resource')).map(a => a.name || a.email.split('@')[0]).slice(0, 4).join(', ')}{event.attendees.length > 4 ? ` +${event.attendees.length - 4}` : ''}</>
+            )}
+            {calendarAccountCount > 1 && event.calendarAccountEmail && (
+              <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-recording/10 text-text-muted" title={event.calendarAccountEmail}>
+                {calendarLabel(event.calendarAccountEmail)}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 mt-0.5">
+          {links.map((link, i) => (
+            <PlatformButton key={i} link={link} />
+          ))}
+          <StopButton onError={onError} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatTimeRange(start: string, end: string) {
+  const fmt = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return `${fmt(start)} \u2014 ${fmt(end)}`
+}
+
+function isHappeningNow(start: string, end: string) {
+  const now = Date.now()
+  return new Date(start).getTime() <= now && new Date(end).getTime() > now
+}
+
+/** Upcoming today section with recording-aware event cards */
+function UpcomingSection({
+  upcoming,
+  loadingCalendar,
+  calendarAccountCount,
+  isRecording,
+  isProcessing,
+  sessionInfo,
+  hasDeepgramKey,
+  onError
+}: {
+  upcoming: CalendarEvent[]
+  loadingCalendar: boolean
+  calendarAccountCount: number
+  isRecording: boolean
+  isProcessing: boolean
+  sessionInfo: SessionInfo | null
+  hasDeepgramKey: boolean
+  onError: (msg: string) => void
+}) {
+  const recordingMatchedToEvent = isRecording
+    && !!sessionInfo?.calendarEventId
+    && upcoming.some(e => e.eventId === sessionInfo.calendarEventId)
+
+  return (
+    <div className="mb-8">
+      {upcoming.length > 0 && (
+        <>
+          <h3 className="text-xs font-medium text-text-secondary mb-4">
+            Upcoming today
+          </h3>
+          {loadingCalendar ? (
+            <div className="flex items-center gap-2 px-4 py-3 bg-surface-secondary/50 rounded-xl">
+              <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
+              <span className="text-xs text-text-muted">Syncing calendar...</span>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {upcoming.map((e) => {
+                const isThisEventRecording = isRecording
+                  && sessionInfo?.calendarEventId === e.eventId
+
+                if (isThisEventRecording && sessionInfo) {
+                  return (
+                    <RecordingEventCard
+                      key={e.eventId}
+                      event={e}
+                      sessionInfo={sessionInfo}
+                      calendarAccountCount={calendarAccountCount}
+                      onError={onError}
+                    />
+                  )
+                }
+
+                const now = isHappeningNow(e.startTime, e.endTime)
+                const links = e.meetingLinks ?? (e.meetingLink ? [{ url: e.meetingLink, platform: e.platform ?? 'other' } as MeetingLink] : [])
+                return (
+                  <div
+                    key={e.eventId}
+                    className={`px-4 py-4 rounded-xl transition-colors ${
+                      now ? 'bg-now-bg border border-now-border' : 'bg-surface-secondary'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text-primary truncate">
+                          {e.title}
+                        </p>
+                        <p className="text-xs text-text-secondary mt-0.5">
+                          {formatTimeRange(e.startTime, e.endTime)}
+                          {e.attendees.length > 0 && (
+                            <> &middot; {e.attendees.filter(a => !a.email?.includes('resource')).map(a => a.name || a.email.split('@')[0]).slice(0, 4).join(', ')}{e.attendees.length > 4 ? ` +${e.attendees.length - 4}` : ''}</>
+                          )}
+                          {calendarAccountCount > 1 && e.calendarAccountEmail && (
+                            <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted" title={e.calendarAccountEmail}>
+                              {calendarLabel(e.calendarAccountEmail)}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                        {links.map((link, i) => (
+                          <PlatformButton key={i} link={link} />
+                        ))}
+                        {now && (
+                          <span className="flex items-center gap-1.5 text-xs text-now-text">
+                            <span className="w-1.5 h-1.5 rounded-full bg-now-text animate-pulse" />
+                            Now
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Impromptu / unscheduled recording card */}
+      {hasDeepgramKey && (
+        <ImpromptuCard
+          isRecording={isRecording}
+          isProcessing={isProcessing}
+          sessionInfo={sessionInfo}
+          hasUpcoming={upcoming.length > 0}
+          recordingMatchedToEvent={recordingMatchedToEvent}
+          onError={onError}
+        />
+      )}
     </div>
   )
 }
@@ -353,15 +546,6 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
-  function formatTimeRange(start: string, end: string) {
-    return `${formatTime(start)} \u2014 ${formatTime(end)}`
-  }
-
-  function isHappeningNow(start: string, end: string) {
-    const now = Date.now()
-    return new Date(start).getTime() <= now && new Date(end).getTime() > now
-  }
-
   const grouped = meetings.reduce<Record<string, Meeting[]>>((acc, m) => {
     const key = m.date || (() => { const d = new Date(m.startTime); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
     ;(acc[key] ??= []).push(m)
@@ -406,78 +590,17 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
         )}
       </div>
 
-      {/* Upcoming Today + Impromptu Recording — hidden during active search */}
-      {!search.trim() && (upcoming.length > 0 || hasDeepgramKey) && <div className="mb-8">
-        {upcoming.length > 0 && (
-          <>
-            <h3 className="text-xs font-medium text-text-secondary mb-4">
-              Upcoming today
-            </h3>
-            {loadingCalendar ? (
-              <div className="flex items-center gap-2 px-4 py-3 bg-surface-secondary/50 rounded-xl">
-                <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
-                <span className="text-xs text-text-muted">Syncing calendar...</span>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {upcoming.map((e) => {
-                  const now = isHappeningNow(e.startTime, e.endTime)
-                  const links = e.meetingLinks ?? (e.meetingLink ? [{ url: e.meetingLink, platform: e.platform ?? 'other' } as MeetingLink] : [])
-                  return (
-                    <div
-                      key={e.eventId}
-                      className={`px-4 py-4 rounded-xl transition-colors ${
-                        now ? 'bg-now-bg border border-now-border' : 'bg-surface-secondary'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-text-primary truncate">
-                            {e.title}
-                          </p>
-                          <p className="text-xs text-text-secondary mt-0.5">
-                            {formatTimeRange(e.startTime, e.endTime)}
-                            {e.attendees.length > 0 && (
-                              <> &middot; {e.attendees.filter(a => !a.email?.includes('resource')).map(a => a.name || a.email.split('@')[0]).slice(0, 4).join(', ')}{e.attendees.length > 4 ? ` +${e.attendees.length - 4}` : ''}</>
-                            )}
-                            {calendarAccountCount > 1 && e.calendarAccountEmail && (
-                              <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted" title={e.calendarAccountEmail}>
-                                {calendarLabel(e.calendarAccountEmail)}
-                              </span>
-                            )}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0 mt-0.5">
-                          {links.map((link, i) => (
-                            <PlatformButton key={i} link={link} />
-                          ))}
-                          {now && (
-                            <span className="flex items-center gap-1.5 text-xs text-now-text">
-                              <span className="w-1.5 h-1.5 rounded-full bg-now-text animate-pulse" />
-                              Now
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Impromptu recording card */}
-        {hasDeepgramKey && (
-          <ImpromptuCard
-            isRecording={isRecording}
-            isProcessing={isProcessing}
-            sessionInfo={sessionInfo}
-            hasUpcoming={upcoming.length > 0}
-            onError={(msg) => addToast(msg, 'error')}
-          />
-        )}
-      </div>}
+      {/* Upcoming Today + Recording — hidden during active search */}
+      {!search.trim() && (upcoming.length > 0 || hasDeepgramKey) && <UpcomingSection
+        upcoming={upcoming}
+        loadingCalendar={loadingCalendar}
+        calendarAccountCount={calendarAccountCount}
+        isRecording={isRecording}
+        isProcessing={isProcessing}
+        sessionInfo={sessionInfo}
+        hasDeepgramKey={hasDeepgramKey}
+        onError={(msg) => addToast(msg, 'error')}
+      />}
 
       {/* Past recordings */}
       {loadingMeetings ? (
@@ -498,7 +621,7 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
             <div className="space-y-0">
               {items.map((m) => {
                 const isUnscheduled = m.title.startsWith('Unscheduled call')
-                const displayTitle = isUnscheduled ? 'Unscheduled recording' : m.title
+                const displayTitle = isUnscheduled ? 'Unscheduled meeting' : m.title
                 return (
                   <button
                     key={m.id}

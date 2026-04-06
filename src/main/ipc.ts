@@ -297,5 +297,10 @@ export function setupIpcHandlers(
     return result.filePaths[0]
   })
 
+  // Open a folder in Finder
+  ipcMain.handle('dialog:openFolder', (_event, folderPath: string) => {
+    return shell.openPath(folderPath)
+  })
+
   log.info('[IPC] Handlers registered')
 }

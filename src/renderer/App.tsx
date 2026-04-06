@@ -14,6 +14,7 @@ export interface SessionInfo {
   sessionId: string
   startTime: string
   title: string
+  calendarEventId?: string
   calendarEvent?: {
     title: string
     attendees: Array<{ name: string; email: string }>
