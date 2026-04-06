@@ -391,12 +391,7 @@ export class PipelineOrchestrator {
       }
     }
 
-    // Log the assembled transcript for review
-    log.info('[Pipeline] --- Transcript ---')
-    for (const seg of this.segments) {
-      log.info(`[Pipeline]   [${seg.start.toFixed(1)}s] ${seg.speaker}: ${seg.text}`)
-    }
-    log.info('[Pipeline] --- End Transcript ---')
+    log.info(`[Pipeline] Transcript: ${this.segments.length} segments, ${metadata.duration.toFixed(1)}s`)
 
     this.setState('complete')
     this.events.onComplete?.({ metadata, transcript })

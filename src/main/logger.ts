@@ -4,11 +4,13 @@
  */
 
 import log from 'electron-log/main'
+import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
 export function initLogger(): void {
   const logDir = path.join(os.homedir(), '.quietclaw', 'logs')
+  fs.mkdirSync(logDir, { recursive: true, mode: 0o700 })
 
   log.transports.file.resolvePathFn = () => path.join(logDir, 'quietclaw.log')
   log.transports.file.maxSize = 10 * 1024 * 1024 // 10 MB

@@ -28,13 +28,11 @@ import type { CalendarEventInfo } from '../storage/models'
 // ---------------------------------------------------------------------------
 // OAuth credentials
 //
-// Replace with your GCP OAuth 2.0 Desktop client credentials, or set
-// QUIETCLAW_GOOGLE_CLIENT_ID / QUIETCLAW_GOOGLE_CLIENT_SECRET env vars.
+// Set QUIETCLAW_GOOGLE_CLIENT_ID and QUIETCLAW_GOOGLE_CLIENT_SECRET env vars,
+// or configure via the Settings UI. See README for GCP project setup.
 // ---------------------------------------------------------------------------
-const CLIENT_ID =
-  process.env.QUIETCLAW_GOOGLE_CLIENT_ID || '382722468283-r4jj32t7940jb4l5srsadnmriq4lljro.apps.googleusercontent.com'
-const CLIENT_SECRET =
-  process.env.QUIETCLAW_GOOGLE_CLIENT_SECRET || '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'
+const CLIENT_ID = process.env.QUIETCLAW_GOOGLE_CLIENT_ID ?? ''
+const CLIENT_SECRET = process.env.QUIETCLAW_GOOGLE_CLIENT_SECRET ?? ''
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
@@ -59,10 +57,10 @@ function createOAuth2Client(): OAuth2Client {
  * Returns the authenticated email address.
  */
 export async function authorizeGoogleCalendar(): Promise<string> {
-  if (CLIENT_ID.includes('YOUR_CLIENT_ID')) {
+  if (!CLIENT_ID || !CLIENT_SECRET) {
     throw new Error(
       'Google Calendar OAuth not configured. Set QUIETCLAW_GOOGLE_CLIENT_ID and ' +
-        'QUIETCLAW_GOOGLE_CLIENT_SECRET environment variables, or update the credentials in calendar/google.ts.'
+        'QUIETCLAW_GOOGLE_CLIENT_SECRET environment variables. See README for setup instructions.'
     )
   }
 

@@ -42,7 +42,7 @@ export function toLocalDateString(date: Date | string): string {
 function atomicWrite(filePath: string, content: string): void {
   const dir = path.dirname(filePath)
   const tmp = path.join(dir, `.${path.basename(filePath)}.tmp.${process.pid}`)
-  fs.writeFileSync(tmp, content, 'utf-8')
+  fs.writeFileSync(tmp, content, { encoding: 'utf-8', mode: 0o600 })
   fs.renameSync(tmp, filePath)
 }
 
@@ -55,7 +55,7 @@ export function getMeetingDir(startTime: string, slug: string): string {
 
 /** Ensure the meeting directory exists */
 function ensureMeetingDir(meetingDir: string): void {
-  fs.mkdirSync(meetingDir, { recursive: true })
+  fs.mkdirSync(meetingDir, { recursive: true, mode: 0o700 })
 }
 
 /**

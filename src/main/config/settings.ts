@@ -291,7 +291,7 @@ export function updateConfigField(key: string, value: unknown): void {
 
 /** Ensure the config directory and a default config file exist */
 export function ensureConfigDir(): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true })
+  fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 })
 
   if (!fs.existsSync(CONFIG_PATH)) {
     // Copy default config as a starting point

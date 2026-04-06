@@ -32,13 +32,20 @@ export function startApiServer(): void {
   // Parse JSON bodies
   app.use(express.json())
 
-  // CORS for localhost origins
+  // CORS for localhost origins only
   app.use((_req, res, next) => {
     const origin = _req.headers.origin
-    if (origin && (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'))) {
-      res.setHeader('Access-Control-Allow-Origin', origin)
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    if (origin) {
+      try {
+        const url = new URL(origin)
+        if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+          res.setHeader('Access-Control-Allow-Origin', origin)
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        }
+      } catch {
+        // Invalid origin — don't set CORS headers
+      }
     }
     if (_req.method === 'OPTIONS') {
       res.status(204).end()
