@@ -17,6 +17,7 @@ import {
   deleteSecret
 } from '../config/secrets'
 import { authorizeGoogleCalendar } from './google'
+import { calendarLabel } from '../ipc-helpers'
 import type { CalendarAccountConfig } from '../config/settings'
 
 /**
@@ -51,7 +52,8 @@ export async function addGoogleAccount(): Promise<string> {
       label: email.split('@')[0],
       provider: 'google',
       email,
-      enabled: true
+      enabled: true,
+      tag: calendarLabel(email)
     }
     appendAccountToConfig(account)
     log.info(`[Calendar] Added account: ${email}`)
@@ -75,6 +77,52 @@ export function removeAccount(email: string): void {
   reloadConfig()
 
   log.info(`[Calendar] Removed account: ${email}`)
+}
+
+/**
+ * Update the user-visible tag for a calendar account.
+ * Empty string resets to the auto-derived default.
+ */
+export function updateAccountTag(email: string, tag: string): void {
+  const resolvedTag = tag.trim() || calendarLabel(email)
+  const configPath = getConfigPath()
+  if (!fs.existsSync(configPath)) return
+
+  const content = fs.readFileSync(configPath, 'utf-8')
+  const lines = content.split('\n')
+  const result: string[] = []
+  let inTargetBlock = false
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    if (line.trim() === '[[calendar.accounts]]') {
+      // Check if this block is for the target email
+      const block = lines.slice(i, i + 6).join('\n')
+      inTargetBlock = block.includes(`email = "${email}"`)
+    } else if (line.trim().startsWith('[[') || line.trim().startsWith('[')) {
+      inTargetBlock = false
+    }
+
+    if (inTargetBlock && line.trim().startsWith('tag')) {
+      // Replace existing tag line
+      result.push(`tag = "${resolvedTag}"`)
+      continue
+    }
+
+    // If we're at the end of the target block (next section or blank line) and haven't found a tag line, insert it
+    if (inTargetBlock && line.trim().startsWith('enabled')) {
+      result.push(line)
+      result.push(`tag = "${resolvedTag}"`)
+      continue
+    }
+
+    result.push(line)
+  }
+
+  fs.writeFileSync(configPath, result.join('\n'), 'utf-8')
+  reloadConfig()
+  log.info(`[Calendar] Updated tag for ${email} → "${resolvedTag}"`)
 }
 
 /**
@@ -108,6 +156,7 @@ label = "${account.label}"
 provider = "${account.provider}"
 email = "${account.email}"
 enabled = ${account.enabled}
+tag = "${account.tag ?? calendarLabel(account.email)}"
 `
   fs.writeFileSync(configPath, content + entry, 'utf-8')
 }

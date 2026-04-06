@@ -1,14 +1,76 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useToast } from '../contexts/ToastContext'
 import type { ThemePreference } from '../hooks/useTheme'
 
 const api = (window as any).quietclaw
+
+/** Inline-editable tag chip for a calendar account */
+function AccountRow({ account, onRemove, onTagUpdate }: {
+  account: CalendarAccount
+  onRemove: () => void
+  onTagUpdate: (tag: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(account.tag ?? '')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
+
+  const commit = () => {
+    setEditing(false)
+    const trimmed = draft.trim()
+    if (trimmed !== (account.tag ?? '')) {
+      onTagUpdate(trimmed)
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between bg-surface rounded-lg px-3 py-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm text-text-primary truncate">{account.email}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit()
+              if (e.key === 'Escape') { setDraft(account.tag ?? ''); setEditing(false) }
+            }}
+            className="w-20 px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-primary border border-border/40 outline-none focus:border-accent"
+            maxLength={20}
+          />
+        ) : (
+          account.tag && (
+            <button
+              onClick={() => { setDraft(account.tag ?? ''); setEditing(true) }}
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted hover:text-text-secondary hover:bg-surface-elevated transition-colors cursor-text"
+              title="Click to edit label"
+            >
+              {account.tag}
+            </button>
+          )
+        )}
+      </div>
+      <button
+        onClick={onRemove}
+        className="text-xs text-text-muted hover:text-red-400 transition-colors shrink-0 ml-2"
+      >
+        Remove
+      </button>
+    </div>
+  )
+}
 
 interface CalendarAccount {
   label: string
   provider: string
   email: string
   enabled: boolean
+  tag?: string
 }
 
 export default function Settings({
@@ -247,18 +309,17 @@ export default function Settings({
           {calendarAccounts.length > 0 && (
             <div className="space-y-1.5 mb-3">
               {calendarAccounts.map((account) => (
-                <div
+                <AccountRow
                   key={account.email}
-                  className="flex items-center justify-between bg-surface rounded-lg px-3 py-2"
-                >
-                  <span className="text-sm text-text-primary">{account.email}</span>
-                  <button
-                    onClick={() => removeCalendar(account.email)}
-                    className="text-xs text-text-muted hover:text-red-400 transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
+                  account={account}
+                  onRemove={() => removeCalendar(account.email)}
+                  onTagUpdate={(tag) => {
+                    api?.calendar.updateTag(account.email, tag)
+                    setCalendarAccounts((prev) =>
+                      prev.map((a) => a.email === account.email ? { ...a, tag } : a)
+                    )
+                  }}
+                />
               ))}
             </div>
           )}

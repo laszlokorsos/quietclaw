@@ -9,7 +9,7 @@ import { app, ipcMain, dialog, shell, nativeTheme } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig, updateConfigField, reloadConfig } from './config/settings'
 import { getDeepgramApiKey, getAnthropicApiKey, setDeepgramApiKey, setAnthropicApiKey } from './config/secrets'
-import { listAccounts, addGoogleAccount, removeAccount } from './calendar/accounts'
+import { listAccounts, addGoogleAccount, removeAccount, updateAccountTag } from './calendar/accounts'
 import { abortGoogleAuth } from './calendar/google'
 import { getCachedEvents, syncNow } from './calendar/sync'
 import {
@@ -25,7 +25,7 @@ import { markSummarized, indexMeeting } from './storage/db'
 import { AnthropicSummarizer } from './pipeline/summarizer/anthropic'
 import { recoverAll } from './pipeline/recovery'
 import { notifyRecordingStarted, notifyRecordingStopped } from './api/ws'
-import { formatRows } from './ipc-helpers'
+import { formatRows, getAccountTag } from './ipc-helpers'
 import type { AudioCaptureProvider } from './audio/types'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
@@ -166,18 +166,29 @@ export function setupIpcHandlers(
     return true
   })
 
+  ipcMain.handle('calendar:updateTag', (_event, email: string, tag: string) => {
+    updateAccountTag(email, tag)
+    return true
+  })
+
   ipcMain.handle('calendar:abortAuth', () => {
     abortGoogleAuth()
     return true
   })
 
   ipcMain.handle('calendar:events', () => {
-    return getCachedEvents()
+    return getCachedEvents().map((e) => ({
+      ...e,
+      calendarAccountTag: e.calendarAccountEmail ? getAccountTag(e.calendarAccountEmail) : undefined
+    }))
   })
 
   ipcMain.handle('calendar:sync', async () => {
     await syncNow()
-    return getCachedEvents()
+    return getCachedEvents().map((e) => ({
+      ...e,
+      calendarAccountTag: e.calendarAccountEmail ? getAccountTag(e.calendarAccountEmail) : undefined
+    }))
   })
 
   // Meetings — formatRows imported from ./ipc-helpers

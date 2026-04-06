@@ -34,6 +34,7 @@ interface MeetingLink {
 interface CalendarEvent {
   eventId: string
   calendarAccountEmail?: string
+  calendarAccountTag?: string
   title: string
   startTime: string
   endTime: string
@@ -43,19 +44,6 @@ interface CalendarEvent {
   meetingLinks?: MeetingLink[]
 }
 
-/** Derive a human-friendly label from a calendar account email */
-const PERSONAL_DOMAINS = new Set([
-  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
-  'yahoo.com', 'icloud.com', 'me.com', 'mac.com', 'protonmail.com', 'proton.me',
-  'aol.com', 'zoho.com', 'fastmail.com', 'tutanota.com', 'hey.com'
-])
-
-function calendarLabel(email: string): string {
-  const domain = email.split('@')[1]?.toLowerCase()
-  if (!domain) return email
-  if (PERSONAL_DOMAINS.has(domain)) return 'personal'
-  return domain
-}
 
 /** Sanitize user input for FTS5 MATCH: strip operators, append * for prefix matching */
 function sanitizeFtsQuery(raw: string): string {
@@ -259,9 +247,9 @@ function RecordingEventCard({
             {event.attendees.length > 0 && (
               <> &middot; {event.attendees.filter(a => !a.email?.includes('resource')).map(a => a.name || a.email.split('@')[0]).slice(0, 4).join(', ')}{event.attendees.length > 4 ? ` +${event.attendees.length - 4}` : ''}</>
             )}
-            {calendarAccountCount > 1 && event.calendarAccountEmail && (
+            {calendarAccountCount > 1 && event.calendarAccountTag && (
               <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-recording/10 text-text-muted" title={event.calendarAccountEmail}>
-                {calendarLabel(event.calendarAccountEmail)}
+                {event.calendarAccountTag}
               </span>
             )}
           </p>
@@ -360,9 +348,9 @@ function UpcomingSection({
                           {e.attendees.length > 0 && (
                             <> &middot; {e.attendees.filter(a => !a.email?.includes('resource')).map(a => a.name || a.email.split('@')[0]).slice(0, 4).join(', ')}{e.attendees.length > 4 ? ` +${e.attendees.length - 4}` : ''}</>
                           )}
-                          {calendarAccountCount > 1 && e.calendarAccountEmail && (
+                          {calendarAccountCount > 1 && e.calendarAccountTag && (
                             <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted" title={e.calendarAccountEmail}>
-                              {calendarLabel(e.calendarAccountEmail)}
+                              {e.calendarAccountTag}
                             </span>
                           )}
                         </p>

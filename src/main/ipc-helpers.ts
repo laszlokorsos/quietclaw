@@ -4,6 +4,8 @@
  * Handles calendar label derivation and DB row formatting.
  */
 
+import { loadConfig } from './config/settings'
+
 export const PERSONAL_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
   'yahoo.com', 'icloud.com', 'me.com', 'mac.com', 'protonmail.com', 'proton.me',
@@ -19,6 +21,15 @@ export function calendarLabel(email: string): string {
   if (!domain) return email
   if (PERSONAL_DOMAINS.has(domain)) return 'personal'
   return domain
+}
+
+/**
+ * Get the stored tag for a calendar account, falling back to auto-derived label.
+ */
+export function getAccountTag(email: string): string {
+  const config = loadConfig()
+  const account = config.calendar.accounts.find((a) => a.email === email)
+  return account?.tag || calendarLabel(email)
 }
 
 /**
@@ -40,7 +51,7 @@ export function formatRows(rows: Array<Record<string, unknown>>): Array<Record<s
       sttProvider: r.stt_provider,
       actionCount: (r.action_count as number) ?? 0,
       calendarAccount,
-      calendarAccountLabel: calendarAccount ? calendarLabel(calendarAccount) : null
+      calendarAccountLabel: calendarAccount ? getAccountTag(calendarAccount) : null
     }
   })
 }

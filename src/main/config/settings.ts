@@ -23,6 +23,8 @@ export interface CalendarAccountConfig {
   provider: 'google'
   email: string
   enabled: boolean
+  /** User-visible tag shown on meetings (e.g. "personal", "work"). Auto-derived from email domain if not set. */
+  tag?: string
 }
 
 export interface CalendarSettingsConfig {

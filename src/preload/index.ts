@@ -72,6 +72,7 @@ export interface QuietClawAPI {
     addGoogle: () => Promise<string>
     abortAuth: () => Promise<boolean>
     remove: (email: string) => Promise<boolean>
+    updateTag: (email: string, tag: string) => Promise<boolean>
     events: () => Promise<unknown[]>
     sync: () => Promise<unknown[]>
   }
@@ -135,6 +136,7 @@ const api: QuietClawAPI = {
     addGoogle: () => ipcRenderer.invoke('calendar:addGoogle'),
     abortAuth: () => ipcRenderer.invoke('calendar:abortAuth'),
     remove: (email: string) => ipcRenderer.invoke('calendar:remove', email),
+    updateTag: (email: string, tag: string) => ipcRenderer.invoke('calendar:updateTag', email, tag),
     events: () => ipcRenderer.invoke('calendar:events'),
     sync: () => ipcRenderer.invoke('calendar:sync')
   },
