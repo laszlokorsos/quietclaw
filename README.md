@@ -80,7 +80,32 @@ Click **Settings > Google Calendar > Connect Account** to add one or more Google
 
 ## Agent Integration
 
-This is what QuietClaw is built for. After each meeting, structured data is available via the REST API and on the filesystem:
+QuietClaw writes plain files and runs a local API — no MCP server or custom integration needed. Claude Code, OpenClaw, n8n, or any agent that can read files or make HTTP requests can consume meeting data directly.
+
+### Read the files
+
+The simplest approach. Meeting data lives at `~/.quietclaw/meetings/` in a predictable structure:
+
+```bash
+# Today's meetings
+ls ~/.quietclaw/meetings/$(date +%Y-%m-%d)/
+
+# Read a transcript (JSON for parsing, Markdown for reading)
+cat ~/.quietclaw/meetings/2026-04-05/weekly-standup-a1b2/transcript.json
+cat ~/.quietclaw/meetings/2026-04-05/weekly-standup-a1b2/transcript.md
+
+# Action items
+cat ~/.quietclaw/meetings/2026-04-05/weekly-standup-a1b2/actions.json
+
+# Daily index lists all meetings for a date
+cat ~/.quietclaw/meetings/2026-04-05/index.md
+```
+
+Each meeting directory contains `metadata.json`, `transcript.json`, and optionally `summary.json` and `actions.json`. The Markdown files are the same data in human/LLM-readable format with YAML frontmatter.
+
+### Use the API
+
+The local REST API is useful for search, triggering summarization, and updating action item status:
 
 ```bash
 # Check if QuietClaw is running
@@ -89,32 +114,16 @@ curl http://localhost:19832/api/v1/health
 # Today's meetings
 curl http://localhost:19832/api/v1/meetings/today | jq '.meetings[].title'
 
-# Get a transcript
-curl http://localhost:19832/api/v1/meetings/{id}/transcript | jq '.segments[:3]'
+# Full-text search across all meetings
+curl 'http://localhost:19832/api/v1/meetings/search?q=pricing' | jq '.'
 
-# Get action items
-curl http://localhost:19832/api/v1/meetings/{id}/actions
-
-# Trigger summarization on an existing transcript
+# Trigger summarization on a transcript that hasn't been summarized yet
 curl -X POST http://localhost:19832/api/v1/meetings/{id}/summarize
 ```
 
-Or read the files directly:
+### Why not MCP?
 
-```bash
-cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json | jq '.'
-```
-
-### Recommended Agentic Workflow
-
-```
-1. Poll /api/v1/meetings/today (or watch ~/.quietclaw/meetings/)
-2. Read transcript.json for the raw conversation
-3. Check actions.json for items marked "agent_executable": true
-4. Present proposed actions to the user
-5. Execute approved actions
-6. Update status via POST /api/v1/meetings/:id/actions/:aid
-```
+The data is already in plain JSON and Markdown files on disk, and there's a REST API for anything that needs querying. An MCP server would be a third interface to the same data, adding context overhead on every agent turn for tool definitions that duplicate what `cat` and `curl` already do.
 
 ## API Reference
 
@@ -205,7 +214,6 @@ See [`resources/default_config.toml`](resources/default_config.toml) for all opt
 - **Additional STT providers** — AssemblyAI, OpenAI Whisper API, local whisper.cpp
 - **Additional summarizers** — OpenAI GPT, Ollama (local)
 - **Real-time transcript display** during calls
-- **MCP server** — expose QuietClaw as a Model Context Protocol resource
 - **Windows support** — WASAPI loopback capture (architecture is already abstracted)
 
 ### Phase 3
