@@ -24,6 +24,10 @@ let audioCapture: MacOSAudioCapture | null = null
 let activeOrchestrator: PipelineOrchestrator | null = null
 let activeMeetingBundleId: string | null = null
 
+/** Consecutive "meeting:ended" polls before we actually stop. Prevents false stops from brief window flicker. */
+const MISSED_POLLS_REQUIRED = 3
+let missedPollCount = 0
+
 /**
  * Start the auto-record meeting detector.
  */
@@ -59,6 +63,7 @@ export function stopAutoRecord(): void {
   audioCapture = null
   activeOrchestrator = null
   activeMeetingBundleId = null
+  missedPollCount = 0
   log.info('[AutoRecord] Meeting detection stopped')
 }
 
@@ -75,6 +80,12 @@ function handleMeetingEvent(event: MeetingDetectionEvent): void {
   }
 
   if (event.event === 'meeting:detected') {
+    // Meeting still alive — reset debounce counter
+    if (missedPollCount > 0) {
+      log.info(`[AutoRecord] Meeting re-detected after ${missedPollCount} missed poll(s) — false alarm`)
+      missedPollCount = 0
+    }
+
     // If already recording this meeting, nothing to do
     if (activeMeetingBundleId) return
 
@@ -96,10 +107,20 @@ function handleMeetingEvent(event: MeetingDetectionEvent): void {
     if (state !== 'recording') {
       log.info(`[AutoRecord] Meeting ended but orchestrator is "${state}" — clearing state`)
       activeMeetingBundleId = null
+      missedPollCount = 0
       return
     }
 
-    log.info('[AutoRecord] Meeting ended — stopping recording')
+    // Debounce: require multiple consecutive "ended" signals before stopping.
+    // Prevents false stops from brief window title flicker or audio indicator changes.
+    missedPollCount++
+    if (missedPollCount < MISSED_POLLS_REQUIRED) {
+      log.info(`[AutoRecord] Meeting poll miss ${missedPollCount}/${MISSED_POLLS_REQUIRED} — waiting...`)
+      return
+    }
+
+    log.info(`[AutoRecord] Meeting ended (${missedPollCount} consecutive misses) — stopping recording`)
+    missedPollCount = 0
     autoStop()
   }
 }

@@ -112,7 +112,7 @@ describe('Auto-Record (Meeting Detection)', () => {
     expect(orch.startRecording).not.toHaveBeenCalled()
   })
 
-  it('stops recording when meeting:ended fires', async () => {
+  it('stops recording after 3 consecutive meeting:ended signals (debounce)', async () => {
     const capture = makeMockCapture()
     const orch = makeOrchestrator()
     startAutoRecord(capture as any, orch as any)
@@ -124,10 +124,43 @@ describe('Auto-Record (Meeting Detection)', () => {
     // Now orchestrator is "recording"
     orch.getState.mockReturnValue('recording')
 
-    // End signal — should stop immediately
+    // First two end signals should NOT stop
     capture._simulateEvent('meeting:ended', '', '')
     await new Promise((r) => setTimeout(r, 50))
+    expect(orch.stopRecording).not.toHaveBeenCalled()
 
+    capture._simulateEvent('meeting:ended', '', '')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(orch.stopRecording).not.toHaveBeenCalled()
+
+    // Third consecutive end signal triggers stop
+    capture._simulateEvent('meeting:ended', '', '')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(orch.stopRecording).toHaveBeenCalled()
+  })
+
+  it('resets debounce counter when meeting:detected fires between ended signals', async () => {
+    const capture = makeMockCapture()
+    const orch = makeOrchestrator()
+    startAutoRecord(capture as any, orch as any)
+
+    capture._simulateEvent('meeting:detected', 'us.zoom.xos', '')
+    await new Promise((r) => setTimeout(r, 50))
+    orch.getState.mockReturnValue('recording')
+
+    // Two misses, then a re-detection (false alarm)
+    capture._simulateEvent('meeting:ended', '', '')
+    capture._simulateEvent('meeting:ended', '', '')
+    capture._simulateEvent('meeting:detected', 'us.zoom.xos', '')
+
+    // Now need 3 more consecutive misses
+    capture._simulateEvent('meeting:ended', '', '')
+    capture._simulateEvent('meeting:ended', '', '')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(orch.stopRecording).not.toHaveBeenCalled()
+
+    capture._simulateEvent('meeting:ended', '', '')
+    await new Promise((r) => setTimeout(r, 50))
     expect(orch.stopRecording).toHaveBeenCalled()
   })
 

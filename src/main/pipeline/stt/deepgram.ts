@@ -212,7 +212,11 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
     const alt = event.channel?.alternatives?.[0]
     if (!alt || !alt.transcript) return
 
-    const channelIndex = event.channel_index?.[0] ?? 0
+    const channelIndex = event.channel_index?.[0]
+    if (channelIndex === undefined) {
+      log.warn('[Deepgram] Result missing channel_index — dropping to avoid speaker misattribution')
+      return
+    }
 
     const words = (alt.words ?? []).map((w: DeepgramWord) => ({
       word: w.word,
@@ -223,7 +227,7 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
       punctuated_word: w.punctuated_word
     }))
 
-    const speakerId = channelIndex === 0 ? 0 : (words[0]?.speaker ?? 0)
+    const speakerId = words[0]?.speaker ?? 0
 
     const result: SttResult = {
       channelIndex,

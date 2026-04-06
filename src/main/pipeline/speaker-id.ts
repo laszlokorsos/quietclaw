@@ -47,13 +47,12 @@ export class SpeakerIdentifier {
     const source = isMicrophone ? 'microphone' as const : 'system' as const
 
     let speaker: string
-    let speakerId: number
+    const speakerId = result.speakerId ?? 0
 
     if (isMicrophone) {
+      // Label as user for now — filterMicBleed() will clean up after recording
       speaker = this.config.userName
-      speakerId = 0
     } else {
-      speakerId = result.speakerId ?? 0
       speaker = this.getSystemSpeakerName(speakerId)
     }
 
@@ -92,6 +91,78 @@ export class SpeakerIdentifier {
     }
 
     return speakers
+  }
+
+  /**
+   * Remove speaker bleed from the microphone channel.
+   *
+   * When the user isn't wearing headphones, the mic picks up other
+   * participants' audio from the speakers. Deepgram's diarization
+   * detects multiple speakers on channel 0 — the dominant one (most
+   * talk time) is the actual user; the rest is bleed and gets dropped
+   * since it's already captured properly on channel 1 (system audio).
+   */
+  filterMicBleed(segments: TranscriptSegment[]): TranscriptSegment[] {
+    const micSegments = segments.filter((s) => s.source === 'microphone')
+    if (micSegments.length === 0) return segments
+
+    // Find unique speaker IDs on each channel
+    const micSpeakerIds = new Set(micSegments.map((s) => s.speakerId))
+
+    // If only one speaker on mic, no bleed to filter
+    if (micSpeakerIds.size <= 1) return segments
+
+    const sysSpeakerIds = new Set(
+      segments.filter((s) => s.source === 'system').map((s) => s.speakerId)
+    )
+
+    // The real "Me" is the speaker who appears on channel 0 (mic) but NOT
+    // on channel 1 (system). Bleed from the speakers shows up on both channels,
+    // but your voice — right next to the mic — only appears on channel 0.
+    const micOnlyIds = [...micSpeakerIds].filter((id) => !sysSpeakerIds.has(id))
+
+    let dominantId: number
+    if (micOnlyIds.length === 1) {
+      // Clean case: exactly one speaker unique to mic = "Me"
+      dominantId = micOnlyIds[0]
+    } else if (micOnlyIds.length > 1) {
+      // Multiple mic-only speakers (rare) — pick the one with most talk time
+      const talkTime = new Map<number, number>()
+      for (const seg of micSegments) {
+        if (micOnlyIds.includes(seg.speakerId)) {
+          talkTime.set(seg.speakerId, (talkTime.get(seg.speakerId) ?? 0) + (seg.end - seg.start))
+        }
+      }
+      dominantId = micOnlyIds[0]
+      let maxTime = 0
+      for (const [id, time] of talkTime) {
+        if (time > maxTime) { dominantId = id; maxTime = time }
+      }
+    } else {
+      // All mic speakers also appear on system (edge case) — fall back to most talk time
+      const talkTime = new Map<number, number>()
+      for (const seg of micSegments) {
+        talkTime.set(seg.speakerId, (talkTime.get(seg.speakerId) ?? 0) + (seg.end - seg.start))
+      }
+      dominantId = [...micSpeakerIds][0]
+      let maxTime = 0
+      for (const [id, time] of talkTime) {
+        if (time > maxTime) { dominantId = id; maxTime = time }
+      }
+    }
+
+    const bleedIds = [...micSpeakerIds].filter((id) => id !== dominantId)
+    const bleedSegCount = micSegments.filter((s) => bleedIds.includes(s.speakerId)).length
+
+    log.info(
+      `[SpeakerID] Mic channel: ${micSpeakerIds.size} speakers detected, ` +
+        `"Me"=speaker ${dominantId} (mic-only=${micOnlyIds.length}), ` +
+        `dropping ${bleedSegCount} bleed segment(s)`
+    )
+
+    return segments.filter(
+      (s) => s.source !== 'microphone' || s.speakerId === dominantId
+    )
   }
 
   /**
