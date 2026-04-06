@@ -471,21 +471,17 @@ static bool IsNativeAppInMeeting(NSString* bundleId, NSString* title) {
     if (!title || title.length == 0) return false;
 
     if ([bundleId isEqualToString:@"us.zoom.xos"]) {
-        // Zoom in-meeting: "Zoom Meeting" or the actual meeting name
-        // Zoom home screen: "Zoom Workplace" or "Zoom"
-        // Zoom lobby/waiting room: "Zoom" or "Waiting Room"
-        if ([title containsString:@"Zoom Meeting"]) return true;
-        // Zoom also shows the meeting topic as the window title during a call
-        // but NOT "Zoom Workplace", "Zoom", or "Settings"
-        if (![title isEqualToString:@"Zoom"] &&
-            ![title containsString:@"Zoom Workplace"] &&
-            ![title containsString:@"Settings"] &&
-            ![title containsString:@"Waiting"]) {
-            // Could be the meeting name — but we need a positive signal.
-            // Check if there's a "meeting controls" toolbar window too
-            // For now, only match "Zoom Meeting" explicitly
-        }
-        return false;
+        // Zoom shows the meeting topic as the window title during a call
+        // (e.g., "Weekly Standup", "Zoom Meeting"). Non-meeting windows
+        // have known titles we can exclude.
+        if ([title isEqualToString:@"Zoom"] ||
+            [title containsString:@"Zoom Workplace"] ||
+            [title containsString:@"Settings"] ||
+            [title containsString:@"Waiting"] ||
+            [title containsString:@"Chat"] ||
+            [title containsString:@"Schedule"] ||
+            title.length < 3) return false;
+        return true;
     }
 
     if ([bundleId hasPrefix:@"com.microsoft.teams"]) {
@@ -763,20 +759,21 @@ void AudioTapMacOS::CheckForActiveMeeting() {
                 snprintf(logBuf, sizeof(logBuf), "Meeting detected: %s", [detectedTitle UTF8String]);
                 LogToJS(logBuf);
                 meetingCurrentlyDetected_ = true;
-                NotifyMeetingEvent("meeting:detected",
-                    [detectedBundleId UTF8String],
-                    [detectedTitle UTF8String]);
             }
+            // Fire on every poll so JS-side debounce counter resets
+            NotifyMeetingEvent("meeting:detected",
+                [detectedBundleId UTF8String],
+                [detectedTitle UTF8String]);
             return;
         }
     }
 
-    // No meeting found
+    // No meeting found — fire on every poll so JS-side debounce can count consecutive misses
     if (meetingCurrentlyDetected_) {
         LogToJS("Meeting no longer detected");
         meetingCurrentlyDetected_ = false;
-        NotifyMeetingEvent("meeting:ended", "", "");
     }
+    NotifyMeetingEvent("meeting:ended", "", "");
 }
 
 void AudioTapMacOS::NotifyMeetingEvent(const char* eventType, const char* bundleId, const char* windowTitle) {
