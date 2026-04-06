@@ -39,3 +39,5 @@ jobs:
 
       - name: Build (vite only)
         run: pnpm run build:vite
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
