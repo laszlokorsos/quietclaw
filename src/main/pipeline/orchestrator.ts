@@ -312,9 +312,9 @@ export class PipelineOrchestrator {
       await this.sttProvider.disconnect()
     }
 
-    // Filter out speaker bleed on the mic channel (other voices picked up by the mic)
+    // Remove mic-channel bleed by comparing against system-channel text
     if (this.speakerIdentifier) {
-      this.segments = this.speakerIdentifier.filterMicBleed(this.segments)
+      this.segments = this.speakerIdentifier.deduplicateBleed(this.segments)
     }
 
     // Refine speaker names with calendar data (Phase 1: basic, Phase 4: full calendar)

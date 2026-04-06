@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { SpeakerIdentifier } from '../src/main/pipeline/speaker-id'
+import { SpeakerIdentifier, textSimilarity } from '../src/main/pipeline/speaker-id'
 import type { SttResult } from '../src/main/pipeline/stt/provider'
+import type { TranscriptSegment } from '../src/main/storage/models'
 
 function makeSttResult(overrides: Partial<SttResult> = {}): SttResult {
   return {
@@ -142,5 +143,100 @@ describe('SpeakerIdentifier', () => {
       const refined = sid.refineWithCalendar([seg])
       expect(refined[0].speaker).toBe('Speaker A')
     })
+  })
+
+  describe('deduplicateBleed()', () => {
+    function seg(source: 'microphone' | 'system', start: number, text: string): TranscriptSegment {
+      return { speaker: source === 'microphone' ? 'Me' : 'Speaker A', speakerId: 0, source, start, end: start + 2, text, confidence: 0.9 }
+    }
+
+    it('drops mic segments that match system segments in text and time', () => {
+      const sid = new SpeakerIdentifier({ userName: 'Me' })
+      const segments = [
+        seg('system', 10, 'My team worked very closely with Christian at AnyScale'),
+        seg('microphone', 11, 'my team worked very closely with Christian at AnyScale')
+      ]
+      const result = sid.deduplicateBleed(segments)
+      expect(result).toHaveLength(1)
+      expect(result[0].source).toBe('system')
+    })
+
+    it('keeps mic segments with different text (genuine user speech)', () => {
+      const sid = new SpeakerIdentifier({ userName: 'Me' })
+      const segments = [
+        seg('system', 10, 'Tell me about your experience with machine learning platforms'),
+        seg('microphone', 12, 'Sure so I have been building ML infrastructure for five years')
+      ]
+      const result = sid.deduplicateBleed(segments)
+      expect(result).toHaveLength(2)
+    })
+
+    it('keeps short mic segments regardless of similarity', () => {
+      const sid = new SpeakerIdentifier({ userName: 'Me' })
+      const segments = [
+        seg('system', 10, 'Yeah'),
+        seg('microphone', 10.5, 'Yeah')
+      ]
+      const result = sid.deduplicateBleed(segments)
+      expect(result).toHaveLength(2)
+    })
+
+    it('keeps mic segment outside the time window', () => {
+      const sid = new SpeakerIdentifier({ userName: 'Me' })
+      const segments = [
+        seg('system', 10, 'My team worked very closely with Christian at AnyScale'),
+        seg('microphone', 20, 'my team worked very closely with Christian at AnyScale')
+      ]
+      const result = sid.deduplicateBleed(segments)
+      expect(result).toHaveLength(2)
+    })
+
+    it('keeps all mic segments when no system segments exist', () => {
+      const sid = new SpeakerIdentifier({ userName: 'Me' })
+      const segments = [
+        seg('microphone', 5, 'Hello this is a test of the microphone'),
+        seg('microphone', 10, 'Another thing I wanted to say')
+      ]
+      const result = sid.deduplicateBleed(segments)
+      expect(result).toHaveLength(2)
+    })
+
+    it('handles partial text overlap (garbled bleed)', () => {
+      const sid = new SpeakerIdentifier({ userName: 'Me' })
+      const segments = [
+        seg('system', 3.28, 'My team actually worked very closely with Christian when he was first working with AnyScale'),
+        seg('microphone', 3.29, 'my team actually worked very closely with Christian when he was first working with AnyScale')
+      ]
+      const result = sid.deduplicateBleed(segments)
+      expect(result).toHaveLength(1)
+      expect(result[0].source).toBe('system')
+    })
+  })
+})
+
+describe('textSimilarity', () => {
+  it('returns 1 for identical text', () => {
+    expect(textSimilarity('hello world test', 'hello world test')).toBe(1)
+  })
+
+  it('returns 1 for case-insensitive match', () => {
+    expect(textSimilarity('Hello World', 'hello world')).toBe(1)
+  })
+
+  it('returns 0 for completely different text', () => {
+    expect(textSimilarity('the quick brown fox', 'alpha beta gamma delta')).toBe(0)
+  })
+
+  it('returns high score for subset overlap', () => {
+    const score = textSimilarity(
+      'worked closely with Christian at AnyScale',
+      'my team worked very closely with Christian when he was first working with AnyScale'
+    )
+    expect(score).toBeGreaterThan(0.5)
+  })
+
+  it('filters out single-character words', () => {
+    // "a" and "I" should be filtered out, leaving meaningful words
+    expect(textSimilarity('I am a test', 'you are a test')).toBe(0.5) // "test" matches out of "am","test" and "are","test"
   })
 })

@@ -21,6 +21,23 @@ import type {
 /** Speaker label letters for system audio participants */
 const SPEAKER_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
+/**
+ * Word-overlap similarity between two text strings.
+ * Uses min(|A|,|B|) as denominator so subsets score high — handles
+ * Deepgram splitting the same utterance at different word boundaries.
+ */
+export function textSimilarity(a: string, b: string): number {
+  const wordsA = new Set(a.toLowerCase().split(/\s+/).filter((w) => w.length > 1))
+  const wordsB = new Set(b.toLowerCase().split(/\s+/).filter((w) => w.length > 1))
+  if (wordsA.size === 0 && wordsB.size === 0) return 1
+  if (wordsA.size === 0 || wordsB.size === 0) return 0
+  let intersection = 0
+  for (const w of wordsA) {
+    if (wordsB.has(w)) intersection++
+  }
+  return intersection / Math.min(wordsA.size, wordsB.size)
+}
+
 export interface SpeakerIdConfig {
   /** Your name (the person running QuietClaw) */
   userName: string
@@ -163,6 +180,54 @@ export class SpeakerIdentifier {
     return segments.filter(
       (s) => s.source !== 'microphone' || s.speakerId === dominantId
     )
+  }
+
+  /**
+   * Remove mic-channel bleed by comparing text against system-channel segments.
+   *
+   * The system channel is a clean digital capture of remote participants.
+   * Any mic segment that says roughly the same thing at roughly the same
+   * time as a system segment is acoustic bleed — the mic picked up what
+   * was playing through the speakers. Drop it; the system channel already
+   * has the clean version.
+   */
+  deduplicateBleed(segments: TranscriptSegment[]): TranscriptSegment[] {
+    const micSegments = segments.filter((s) => s.source === 'microphone')
+    const sysSegments = segments.filter((s) => s.source === 'system')
+
+    if (micSegments.length === 0 || sysSegments.length === 0) return segments
+
+    // Tunable parameters
+    const TIME_WINDOW = 3.0       // seconds — how close in time to consider a match
+    const SIMILARITY_THRESHOLD = 0.5  // 50% word overlap = bleed
+    const MIN_WORDS = 2           // skip very short segments ("Yeah", "Mhmm")
+
+    const bleedIndices = new Set<TranscriptSegment>()
+
+    for (const mic of micSegments) {
+      const micWords = mic.text.toLowerCase().split(/\s+/).filter((w) => w.length > 1)
+      if (micWords.length < MIN_WORDS) continue
+
+      for (const sys of sysSegments) {
+        // Check time overlap: segments within TIME_WINDOW of each other
+        if (mic.start > sys.end + TIME_WINDOW || sys.start > mic.end + TIME_WINDOW) continue
+
+        const similarity = textSimilarity(mic.text, sys.text)
+        if (similarity >= SIMILARITY_THRESHOLD) {
+          bleedIndices.add(mic)
+          break
+        }
+      }
+    }
+
+    if (bleedIndices.size > 0) {
+      log.info(
+        `[SpeakerID] Bleed dedup: ${micSegments.length} mic segments, ` +
+          `${bleedIndices.size} dropped as bleed, ${micSegments.length - bleedIndices.size} kept`
+      )
+    }
+
+    return segments.filter((s) => !bleedIndices.has(s))
   }
 
   /**
