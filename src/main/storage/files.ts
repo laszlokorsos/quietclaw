@@ -257,6 +257,14 @@ export function remapSpeakers(
     }
   }
 
+  // Deduplicate speakers (handles merges where multiple labels → same name)
+  const seenSpeakers = new Set<string>()
+  metadata.speakers = metadata.speakers.filter((s) => {
+    if (seenSpeakers.has(s.name)) return false
+    seenSpeakers.add(s.name)
+    return true
+  })
+
   // Rewrite metadata.json, transcript.json, transcript.md, and daily index
   writeMeetingFiles(metadata, transcript)
 
@@ -272,6 +280,63 @@ export function remapSpeakers(
   }
 
   log.info(`[Storage] Remapped speakers in ${meetingDir}: ${JSON.stringify(mapping)}`)
+  return { metadata, transcript }
+}
+
+/**
+ * Reset speaker names back to original diarization labels (Speaker A, B, C...).
+ * Uses the preserved speakerId on each segment to reconstruct labels.
+ * Microphone segments keep their current name (the user's name).
+ */
+const SPEAKER_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+export function resetSpeakers(
+  meetingDir: string
+): { metadata: MeetingMetadata; transcript: Transcript } {
+  const metadata = readMeetingMetadata(meetingDir)
+  const transcript = readTranscript(meetingDir)
+  if (!metadata || !transcript) throw new Error('Meeting files not found')
+
+  // Build a stable speakerId → letter mapping from order of first appearance
+  const idToLabel = new Map<number, string>()
+  let nextIdx = 0
+  for (const seg of transcript.segments) {
+    if (seg.source !== 'system') continue
+    if (!idToLabel.has(seg.speakerId)) {
+      idToLabel.set(seg.speakerId, `Speaker ${SPEAKER_LABELS[nextIdx % SPEAKER_LABELS.length]}`)
+      nextIdx++
+    }
+  }
+
+  // Restore segment speaker names
+  for (const seg of transcript.segments) {
+    if (seg.source === 'system') {
+      seg.speaker = idToLabel.get(seg.speakerId) ?? seg.speaker
+    }
+  }
+
+  // Rebuild metadata speakers from restored labels
+  const micSpeaker = metadata.speakers.find((s) => s.source === 'microphone')
+  const newSpeakers: typeof metadata.speakers = micSpeaker ? [micSpeaker] : []
+  for (const [id, label] of idToLabel) {
+    newSpeakers.push({ name: label, speakerId: id, source: 'system' })
+  }
+  metadata.speakers = newSpeakers
+
+  // Rewrite files
+  writeMeetingFiles(metadata, transcript)
+
+  // Regenerate summary.md if it exists
+  const summary = readSummary(meetingDir)
+  if (summary) {
+    const config = loadConfig()
+    if (config.general.markdown_output) {
+      const summaryMdPath = path.join(meetingDir, 'summary.md')
+      atomicWrite(summaryMdPath, renderSummaryMarkdown(metadata, summary))
+    }
+  }
+
+  log.info(`[Storage] Reset speakers in ${meetingDir} → ${[...idToLabel.values()].join(', ')}`)
   return { metadata, transcript }
 }
 

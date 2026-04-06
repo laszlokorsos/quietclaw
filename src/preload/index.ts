@@ -61,6 +61,7 @@ export interface QuietClawAPI {
     actions: (id: string) => Promise<unknown>
     summarize: (id: string) => Promise<{ summary: unknown; actions: unknown[] }>
     delete: (id: string) => Promise<boolean>
+    resetSpeakers: (id: string) => Promise<unknown>
   }
   recovery: {
     getStatus: () => Promise<unknown>
@@ -121,7 +122,9 @@ const api: QuietClawAPI = {
     summarize: (id: string) => ipcRenderer.invoke('meetings:summarize', id),
     delete: (id: string) => ipcRenderer.invoke('meetings:delete', id),
     remapSpeakers: (id: string, mapping: Record<string, string>) =>
-      ipcRenderer.invoke('meetings:remapSpeakers', id, mapping)
+      ipcRenderer.invoke('meetings:remapSpeakers', id, mapping),
+    resetSpeakers: (id: string) =>
+      ipcRenderer.invoke('meetings:resetSpeakers', id)
   },
   recovery: {
     getStatus: () => ipcRenderer.invoke('recovery:getStatus'),

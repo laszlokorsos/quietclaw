@@ -13,6 +13,7 @@ interface SpeakerMappingProps {
   segments: Segment[]
   attendees: Array<{ name: string; email: string }>
   onSave: (mapping: Record<string, string>) => Promise<void>
+  onReset?: () => Promise<void>
 }
 
 /** Pick the most distinctive quotes for a speaker (longest, skip filler) */
@@ -24,25 +25,37 @@ function getRepresentativeQuotes(segments: Segment[], speakerName: string, max =
     .map((s) => s.text.length > 120 ? s.text.slice(0, 117) + '...' : s.text)
 }
 
-export default function SpeakerMapping({ speakers, segments, attendees, onSave }: SpeakerMappingProps) {
+export default function SpeakerMapping({ speakers, segments, attendees, onSave, onReset }: SpeakerMappingProps) {
   const [expanded, setExpanded] = useState(false)
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [customInputs, setCustomInputs] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
   const unmapped = speakers.filter(
     (s) => s.source === 'system' && /^Speaker [A-Z]$/.test(s.name)
   )
 
-  if (unmapped.length === 0) return null
+  // Previously mapped speakers (system speakers that have real names, not "Speaker X")
+  const previouslyMapped = speakers.filter(
+    (s) => s.source === 'system' && !/^Speaker [A-Z]$/.test(s.name)
+  )
 
-  // Names already assigned in the current mapping session
-  const assignedNames = new Set(Object.values(mapping).filter(Boolean))
+  if (unmapped.length === 0 && previouslyMapped.length === 0) return null
 
   // Names that are already identified (mic speaker + any non-anonymous speakers)
   const alreadyNamed = new Set(
     speakers.filter((s) => !/^Speaker [A-Z]$/.test(s.name)).map((s) => s.name)
   )
+
+  // Find which speakers in the current mapping share the same target name (for merge hints)
+  function getMergePartners(speakerName: string): string[] {
+    const targetName = mapping[speakerName]
+    if (!targetName) return []
+    return Object.entries(mapping)
+      .filter(([key, val]) => key !== speakerName && val === targetName)
+      .map(([key]) => key)
+  }
 
   const hasChanges = Object.values(mapping).some(Boolean)
 
@@ -77,20 +90,48 @@ export default function SpeakerMapping({ speakers, segments, attendees, onSave }
 
   // Collapsed banner
   if (!expanded) {
+    // Nothing to show if no unmapped speakers and no previously mapped speakers
+    if (unmapped.length === 0 && previouslyMapped.length === 0) return null
+
     return (
       <div className="flex items-center justify-between bg-surface-secondary rounded-xl px-4 py-3 mb-4">
         <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-          <span className="text-sm text-text-secondary">
-            {unmapped.length} unnamed speaker{unmapped.length > 1 ? 's' : ''}
-          </span>
+          {unmapped.length > 0 ? (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              <span className="text-sm text-text-secondary">
+                {unmapped.length} unnamed speaker{unmapped.length > 1 ? 's' : ''}
+              </span>
+            </>
+          ) : (
+            <span className="text-sm text-text-secondary">
+              {previouslyMapped.length} identified speaker{previouslyMapped.length > 1 ? 's' : ''}
+            </span>
+          )}
         </div>
-        <button
-          onClick={() => setExpanded(true)}
-          className="text-sm text-accent hover:text-accent-hover transition-colors"
-        >
-          Identify
-        </button>
+        <div className="flex items-center gap-3">
+          {onReset && previouslyMapped.length > 0 && (
+            <button
+              onClick={async () => {
+                setResetting(true)
+                try { await onReset() } catch {}
+                setResetting(false)
+              }}
+              disabled={resetting}
+              className="text-sm text-text-muted hover:text-text-secondary transition-colors"
+            >
+              {resetting ? 'Resetting...' : 'Reset names'}
+            </button>
+          )}
+          {unmapped.length > 0 && (
+            <button
+              onClick={() => setExpanded(true)}
+              className="text-sm text-accent hover:text-accent-hover transition-colors"
+            >
+              Identify
+            </button>
+          )}
+        </div>
       </div>
     )
   }
@@ -105,12 +146,9 @@ export default function SpeakerMapping({ speakers, segments, attendees, onSave }
           const quotes = getRepresentativeQuotes(segments, speaker.name)
           const isCustom = customInputs[speaker.name]
 
-          // Available attendees: exclude already-named speakers and already-assigned-in-this-session
-          const available = attendees.filter(
-            (a) =>
-              !alreadyNamed.has(a.name) &&
-              (!assignedNames.has(a.name) || mapping[speaker.name] === a.name)
-          )
+          // Available attendees: exclude already-identified speakers (like "Me")
+          const available = attendees.filter((a) => !alreadyNamed.has(a.name))
+          const mergePartners = getMergePartners(speaker.name)
 
           return (
             <div key={speaker.name}>
@@ -154,6 +192,12 @@ export default function SpeakerMapping({ speakers, segments, attendees, onSave }
                   </select>
                 )}
               </div>
+
+              {mergePartners.length > 0 && (
+                <p className="text-xs text-text-muted mt-1">
+                  Will merge with {mergePartners.join(', ')}
+                </p>
+              )}
 
               {quotes.length > 0 && (
                 <div className="space-y-1.5 ml-0.5">

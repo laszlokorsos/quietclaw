@@ -291,12 +291,23 @@ export class PipelineOrchestrator {
 
     log.info(`[Pipeline] Audio capture stopped — sent ${this.chunksSent} stereo packets total`)
 
-    // Finalize STT — get any remaining results
+    // Finalize STT — Deepgram sends remaining results then closes the connection
     if (this.sttProvider?.isConnected()) {
       this.sttProvider.finalize()
 
-      // Wait a moment for final results to arrive
-      await new Promise<void>((resolve) => setTimeout(resolve, 2000))
+      // Wait for Deepgram to close the connection after flushing final results.
+      // Safety timeout prevents hanging if the server doesn't close cleanly.
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          log.warn('[Pipeline] Deepgram did not close within 10s after finalize — disconnecting')
+          resolve()
+        }, 10000)
+
+        this.sttProvider!.onClose(() => {
+          clearTimeout(timeout)
+          resolve()
+        })
+      })
 
       await this.sttProvider.disconnect()
     }

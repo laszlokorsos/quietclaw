@@ -152,6 +152,14 @@ export default function MeetingDetail({
     addToast('Speakers identified')
   }
 
+  async function handleResetSpeakers() {
+    if (!api) return
+    const result = await api.meetings.resetSpeakers(meetingId)
+    setMeta(result.metadata)
+    setTranscript(result.transcript)
+    addToast('Speaker names reset')
+  }
+
   function formatTimestamp(seconds: number) {
     const m = Math.floor(seconds / 60)
     const s = Math.floor(seconds % 60)
@@ -270,6 +278,7 @@ export default function MeetingDetail({
               segments={transcript.segments}
               attendees={meta.calendarEvent?.attendees ?? []}
               onSave={handleRemapSpeakers}
+              onReset={handleResetSpeakers}
             />
           )}
           <div className="flex justify-end mb-3">

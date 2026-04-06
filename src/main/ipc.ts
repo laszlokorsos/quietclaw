@@ -20,7 +20,7 @@ import {
   getMeetingDir,
   deleteMeetingIndex
 } from './storage/db'
-import { readMeetingMetadata, readTranscript, readSummary, readActions, writeSummaryFiles, deleteMeetingFiles, remapSpeakers } from './storage/files'
+import { readMeetingMetadata, readTranscript, readSummary, readActions, writeSummaryFiles, deleteMeetingFiles, remapSpeakers, resetSpeakers } from './storage/files'
 import { markSummarized, indexMeeting } from './storage/db'
 import { AnthropicSummarizer } from './pipeline/summarizer/anthropic'
 import { recoverAll } from './pipeline/recovery'
@@ -256,6 +256,21 @@ export function setupIpcHandlers(
     const { metadata, transcript } = remapSpeakers(dir, mapping)
 
     // Re-index in SQLite FTS with new speaker names
+    const transcriptText = transcript.segments
+      .map((s) => `${s.speaker}: ${s.text}`)
+      .join('\n')
+    indexMeeting(metadata, dir, transcriptText)
+
+    return { metadata, transcript }
+  })
+
+  ipcMain.handle('meetings:resetSpeakers', (_event, id: string) => {
+    const dir = getMeetingDir(id)
+    if (!dir) throw new Error(`Meeting ${id} not found`)
+
+    const { metadata, transcript } = resetSpeakers(dir)
+
+    // Re-index in SQLite FTS with restored speaker names
     const transcriptText = transcript.segments
       .map((s) => `${s.speaker}: ${s.text}`)
       .join('\n')
