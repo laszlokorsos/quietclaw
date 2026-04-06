@@ -43,7 +43,8 @@ interface MeetingMeta {
   duration: number
   speakers: Array<{ name: string; source: string }>
   summarized: boolean
-  calendarEvent?: { title: string; attendees: Array<{ name: string; email: string }> }
+  calendarEvent?: { title: string; attendees: Array<{ name: string; email: string }>; calendarAccountEmail?: string }
+  calendarAccountTag?: string
 }
 
 export default function MeetingDetail({
@@ -200,7 +201,22 @@ export default function MeetingDetail({
       </button>
 
       <div className="flex items-start justify-between gap-3 mb-1">
-        <h2 className="text-xl font-semibold tracking-tight">{meta.title}</h2>
+        <div className="flex items-center gap-2">
+          {meta.calendarEvent ? (
+            <svg className="w-4 h-4 text-text-muted shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4 text-text-muted shrink-0" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+            </svg>
+          )}
+          <h2 className="text-xl font-semibold tracking-tight">{meta.title}</h2>
+        </div>
         <button
           onClick={() => setShowDeleteConfirm(true)}
           className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-recording-text hover:bg-recording-text/10 transition-colors"
@@ -219,6 +235,11 @@ export default function MeetingDetail({
         {new Date(meta.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         &middot; {Math.round(meta.duration / 60)}m
         &middot; {meta.speakers.map((s) => s.name).join(', ')}
+        {meta.calendarAccountTag && (
+          <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted">
+            {meta.calendarAccountTag}
+          </span>
+        )}
       </p>
 
       {/* Delete confirmation dialog */}

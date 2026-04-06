@@ -200,7 +200,13 @@ export function setupIpcHandlers(
   ipcMain.handle('meetings:get', (_event, id: string) => {
     const dir = getMeetingDir(id)
     if (!dir) return null
-    return readMeetingMetadata(dir)
+    const metadata = readMeetingMetadata(dir)
+    if (!metadata) return null
+    const email = metadata.calendarEvent?.calendarAccountEmail
+    return {
+      ...metadata,
+      calendarAccountTag: email ? getAccountTag(email) : undefined
+    }
   })
 
   ipcMain.handle('meetings:today', () => {
