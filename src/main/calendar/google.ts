@@ -259,7 +259,7 @@ function convertEvent(
 
   // Detect meeting platforms from conference data and description
   const meetingLinks: MeetingLink[] = []
-  const seenUrls = new Set<string>()
+  const seenKeys = new Set<string>()
 
   function detectPlatform(url: string): MeetingLink['platform'] {
     if (url.includes('meet.google.com')) return 'google_meet'
@@ -268,9 +268,24 @@ function convertEvent(
     return 'other'
   }
 
+  /** Dedup key: extract meeting ID for known platforms, fall back to full URL */
+  function dedupKey(url: string): string {
+    // Zoom: extract meeting ID from /j/{id}
+    const zoomMatch = url.match(/zoom\.us\/j\/(\d+)/)
+    if (zoomMatch) return `zoom:${zoomMatch[1]}`
+    // Google Meet: extract meeting code
+    const meetMatch = url.match(/meet\.google\.com\/([a-z\-]+)/)
+    if (meetMatch) return `meet:${meetMatch[1]}`
+    // Teams: extract thread ID
+    const teamsMatch = url.match(/meetup-join\/([^/]+)/)
+    if (teamsMatch) return `teams:${teamsMatch[1]}`
+    return url
+  }
+
   function addLink(url: string): void {
-    if (seenUrls.has(url)) return
-    seenUrls.add(url)
+    const key = dedupKey(url)
+    if (seenKeys.has(key)) return
+    seenKeys.add(key)
     meetingLinks.push({ url, platform: detectPlatform(url) })
   }
 

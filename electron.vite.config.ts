@@ -4,7 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({
+      exclude: ['googleapis', 'express', 'ws', 'toml', 'uuid', 'electron-log', 'encoding']
+    })],
     build: {
       rollupOptions: {
         external: ['better-sqlite3']

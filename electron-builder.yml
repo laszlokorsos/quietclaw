@@ -7,13 +7,25 @@ files:
   - out/**/*
   - native/build/Release/*.node
   - "!node_modules/**/*"
+  - node_modules/better-sqlite3/**/*
+  - node_modules/bindings/**/*
+  - node_modules/file-uri-to-path/**/*
+  - "!node_modules/better-sqlite3/{deps,src}/**"
+asar: true
+asarUnpack:
+  - "**/*.node"
+npmRebuild: true
 extraResources:
   - from: resources/default_config.toml
     to: default_config.toml
   - from: resources/tray-icon.png
     to: tray-icon.png
+  - from: resources/tray-icon@2x.png
+    to: tray-icon@2x.png
   - from: resources/tray-icon-recording.png
     to: tray-icon-recording.png
+  - from: resources/tray-icon-recording@2x.png
+    to: tray-icon-recording@2x.png
 mac:
   category: public.app-category.productivity
   icon: resources/icon.png

@@ -139,7 +139,7 @@ app.whenReady().then(async () => {
       const hasPermission = await audioCapture.hasPermission()
       log.info(`[App] Screen Recording permission: ${hasPermission}`)
 
-      if (!hasPermission) {
+      if (!hasPermission && config.general.onboarding_complete) {
         log.info('[App] Screen Recording permission not granted — prompting user')
 
         // Show dock icon temporarily so the dialog is visible

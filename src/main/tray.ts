@@ -17,7 +17,11 @@ let tray: Tray | null = null
 let processingPulseTimer: ReturnType<typeof setInterval> | null = null
 
 function loadTrayIcon(filename: string): Electron.NativeImage {
-  const iconPath = path.join(__dirname, '../../resources', filename)
+  // In packaged app, tray icons are in extraResources (Contents/Resources/).
+  // In dev, they're in the project's resources/ directory.
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, filename)
+    : path.join(__dirname, '../../resources', filename)
   const loaded = nativeImage.createFromPath(iconPath)
   if (loaded.isEmpty()) {
     log.warn(`[Tray] Icon not found at ${iconPath}, using fallback`)
