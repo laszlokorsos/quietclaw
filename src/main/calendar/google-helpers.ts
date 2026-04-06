@@ -5,7 +5,7 @@
  * and Google Calendar event → CalendarEventInfo conversion.
  */
 
-import type { calendar_v3 } from 'googleapis'
+import type { calendar_v3 } from '@googleapis/calendar'
 import type { CalendarEventInfo, CalendarAttendee, MeetingLink } from '../storage/models'
 
 /**

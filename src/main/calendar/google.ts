@@ -11,7 +11,8 @@
  * Desktop credentials, and set the client ID/secret below (or via env vars).
  */
 
-import { google } from 'googleapis'
+import { calendar } from '@googleapis/calendar'
+import { oauth2 } from '@googleapis/oauth2'
 import { OAuth2Client } from 'google-auth-library'
 import express from 'express'
 import type { Server } from 'node:http'
@@ -50,7 +51,7 @@ let activeOAuthReject: ((err: Error) => void) | null = null
  * Create an OAuth2 client configured for loopback redirect.
  */
 function createOAuth2Client(): OAuth2Client {
-  return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI)
+  return new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI)
 }
 
 /**
@@ -85,8 +86,8 @@ export async function authorizeGoogleCalendar(): Promise<string> {
   }
 
   // Get user email
-  const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client })
-  const userInfo = await oauth2.userinfo.get()
+  const oauth2Api = oauth2({ version: 'v2', auth: oauth2Client })
+  const userInfo = await oauth2Api.userinfo.get()
   const email = userInfo.data.email
   if (!email) {
     throw new Error('Could not determine Google account email')
@@ -222,10 +223,10 @@ export async function fetchEvents(
     return []
   }
 
-  const calendar = google.calendar({ version: 'v3', auth: client })
+  const cal = calendar({ version: 'v3', auth: client })
 
   try {
-    const response = await calendar.events.list({
+    const response = await cal.events.list({
       calendarId: 'primary',
       timeMin: timeMin.toISOString(),
       timeMax: timeMax.toISOString(),

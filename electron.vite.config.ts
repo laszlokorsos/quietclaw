@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({
-      exclude: ['googleapis', 'express', 'ws', 'toml', 'uuid', 'electron-log', 'encoding']
+      exclude: ['@googleapis/calendar', '@googleapis/oauth2', 'express', 'ws', 'toml', 'uuid', 'electron-log', 'encoding']
     })],
     build: {
       rollupOptions: {
