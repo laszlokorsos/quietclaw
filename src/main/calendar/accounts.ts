@@ -92,32 +92,39 @@ export function updateAccountTag(email: string, tag: string): void {
   const lines = content.split('\n')
   const result: string[] = []
   let inTargetBlock = false
+  let tagWritten = false
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
 
     if (line.trim() === '[[calendar.accounts]]') {
-      // Check if this block is for the target email
-      const block = lines.slice(i, i + 6).join('\n')
+      const block = lines.slice(i, i + 7).join('\n')
       inTargetBlock = block.includes(`email = "${email}"`)
+      tagWritten = false
     } else if (line.trim().startsWith('[[') || line.trim().startsWith('[')) {
+      // Leaving the target block — if we didn't find/replace a tag line, insert before leaving
+      if (inTargetBlock && !tagWritten) {
+        result.push(`tag = "${resolvedTag}"`)
+        tagWritten = true
+      }
       inTargetBlock = false
     }
 
     if (inTargetBlock && line.trim().startsWith('tag')) {
-      // Replace existing tag line
-      result.push(`tag = "${resolvedTag}"`)
-      continue
-    }
-
-    // If we're at the end of the target block (next section or blank line) and haven't found a tag line, insert it
-    if (inTargetBlock && line.trim().startsWith('enabled')) {
-      result.push(line)
-      result.push(`tag = "${resolvedTag}"`)
+      if (!tagWritten) {
+        result.push(`tag = "${resolvedTag}"`)
+        tagWritten = true
+      }
+      // Skip any existing tag line (handles duplicates too)
       continue
     }
 
     result.push(line)
+  }
+
+  // If the target block was the last section in the file
+  if (inTargetBlock && !tagWritten) {
+    result.push(`tag = "${resolvedTag}"`)
   }
 
   fs.writeFileSync(configPath, result.join('\n'), 'utf-8')

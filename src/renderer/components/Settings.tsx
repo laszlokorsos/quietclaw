@@ -4,14 +4,28 @@ import type { ThemePreference } from '../hooks/useTheme'
 
 const api = (window as any).quietclaw
 
+const PERSONAL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
+  'yahoo.com', 'icloud.com', 'me.com', 'mac.com', 'protonmail.com', 'proton.me',
+  'aol.com', 'zoho.com', 'fastmail.com', 'tutanota.com', 'hey.com'
+])
+
+function defaultTag(email: string): string {
+  const domain = email.split('@')[1]?.toLowerCase()
+  if (!domain) return email
+  if (PERSONAL_DOMAINS.has(domain)) return 'personal'
+  return domain
+}
+
 /** Inline-editable tag chip for a calendar account */
 function AccountRow({ account, onRemove, onTagUpdate }: {
   account: CalendarAccount
   onRemove: () => void
   onTagUpdate: (tag: string) => void
 }) {
+  const displayTag = account.tag || defaultTag(account.email)
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(account.tag ?? '')
+  const [draft, setDraft] = useState(displayTag)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -21,7 +35,7 @@ function AccountRow({ account, onRemove, onTagUpdate }: {
   const commit = () => {
     setEditing(false)
     const trimmed = draft.trim()
-    if (trimmed !== (account.tag ?? '')) {
+    if (trimmed !== displayTag) {
       onTagUpdate(trimmed)
     }
   }
@@ -38,21 +52,19 @@ function AccountRow({ account, onRemove, onTagUpdate }: {
             onBlur={commit}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commit()
-              if (e.key === 'Escape') { setDraft(account.tag ?? ''); setEditing(false) }
+              if (e.key === 'Escape') { setDraft(displayTag); setEditing(false) }
             }}
             className="w-20 px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-primary border border-border/40 outline-none focus:border-accent"
             maxLength={20}
           />
         ) : (
-          account.tag && (
-            <button
-              onClick={() => { setDraft(account.tag ?? ''); setEditing(true) }}
-              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted hover:text-text-secondary hover:bg-surface-elevated transition-colors cursor-text"
-              title="Click to edit label"
-            >
-              {account.tag}
-            </button>
-          )
+          <button
+            onClick={() => { setDraft(displayTag); setEditing(true) }}
+            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-secondary text-text-muted hover:text-text-secondary hover:bg-surface-elevated transition-colors cursor-text"
+            title="Click to edit label"
+          >
+            {displayTag}
+          </button>
         )}
       </div>
       <button
