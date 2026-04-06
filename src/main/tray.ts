@@ -14,7 +14,6 @@ import { notifyRecordingStarted, notifyRecordingStopped, notifyMeetingProcessed 
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
 let tray: Tray | null = null
-let processingPulseTimer: ReturnType<typeof setInterval> | null = null
 
 function loadTrayIcon(filename: string): Electron.NativeImage {
   // In packaged app, tray icons are in extraResources (Contents/Resources/).
@@ -133,25 +132,13 @@ export function setupTray(
       }
       tray?.setToolTip(tooltips[state] ?? 'QuietClaw')
 
-      // Stop any existing pulse animation
-      if (processingPulseTimer) {
-        clearInterval(processingPulseTimer)
-        processingPulseTimer = null
-      }
-
       if (state === 'recording') {
         tray?.setImage(iconRecording)
         // Notify renderer — works for both manual and auto-started recordings
         const sessionInfo = orchestrator.getSessionInfo()
         mainWindow?.webContents.send('recording-status', { recording: true, sessionInfo })
       } else if (state === 'processing') {
-        // Pulse: alternate between visible and dimmed icon
-        let visible = true
         tray?.setImage(iconIdle)
-        processingPulseTimer = setInterval(() => {
-          visible = !visible
-          tray?.setImage(visible ? iconIdle : nativeImage.createEmpty())
-        }, 800)
         mainWindow?.webContents.send('recording-status', { recording: false, processing: true })
       } else {
         tray?.setImage(iconIdle)
