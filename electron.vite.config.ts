@@ -9,7 +9,7 @@ export default defineConfig({
     })],
     build: {
       rollupOptions: {
-        external: ['better-sqlite3']
+        external: ['better-sqlite3', 'bufferutil', 'utf-8-validate']
       }
     }
   },
