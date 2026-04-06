@@ -480,6 +480,11 @@ static bool IsNativeAppInMeeting(NSString* bundleId, NSString* title) {
             [title containsString:@"Waiting"] ||
             [title containsString:@"Chat"] ||
             [title containsString:@"Schedule"] ||
+            [title containsString:@"Contacts"] ||
+            [title containsString:@"Whiteboard"] ||
+            [title containsString:@"Notes"] ||
+            [title containsString:@"Clips"] ||
+            [title containsString:@"AI Companion"] ||
             title.length < 3) return false;
         return true;
     }
@@ -741,7 +746,11 @@ void AudioTapMacOS::CheckForActiveMeeting() {
                     }
 
                     // Check native meeting app windows (Zoom, Teams, etc.)
-                    if (IsNativeMeetingApp(bundleId) && IsNativeAppInMeeting(bundleId, title)) {
+                    // Require mic to be active — browser detection has 🔊 as a gate,
+                    // native apps need the mic check to avoid false positives from
+                    // apps that are open but not in an active call.
+                    if (IsNativeMeetingApp(bundleId) && IsNativeAppInMeeting(bundleId, title)
+                        && this->IsMicRunning()) {
                         detectedBundleId = bundleId;
                         detectedTitle = title;
                         break;
