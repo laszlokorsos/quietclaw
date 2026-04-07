@@ -11,7 +11,7 @@ import type { TranscriptSegment, TranscriptWord } from '../../storage/models'
 export interface SttProviderConfig {
   /** API key for the provider */
   apiKey: string
-  /** Model to use (e.g., "nova-2") */
+  /** Model to use (e.g., "nova-3") */
   model: string
   /** Language code (e.g., "en") */
   language: string
@@ -74,10 +74,11 @@ export interface StreamingSttProvider extends SttProvider {
   connect(): Promise<void>
 
   /**
-   * Send audio data to the STT service.
-   * Audio should be interleaved stereo PCM: left = mic, right = system.
+   * Send mono audio data to the STT service for a specific source.
+   * Each provider manages separate connections internally (one per source).
+   * Audio should be mono linear16 PCM at the configured sample rate.
    */
-  send(audio: Buffer): void
+  send(audio: Buffer, source: 'microphone' | 'system'): void
 
   /** Signal that no more audio will be sent; flush remaining results */
   finalize(): void

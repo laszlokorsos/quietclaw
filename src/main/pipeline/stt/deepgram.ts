@@ -1,13 +1,18 @@
 /**
  * Deepgram real-time streaming STT provider.
  *
- * Uses the `ws` package directly for the WebSocket connection instead of the
- * Deepgram SDK's built-in WebSocket handling, which breaks in Electron's main
- * process (Electron exposes a global WebSocket from Chromium, causing the SDK
- * to use browser-style auth that fails silently).
+ * Uses two separate mono WebSocket connections (matching Granola's approach):
+ *   - Mic connection: channels=1, no diarization (always "you")
+ *   - System connection: channels=1, diarization enabled (other participants)
  *
- * Channel 0 (left) = microphone = "you"
- * Channel 1 (right) = system audio = other participants (diarized)
+ * This is more reliable than a single stereo multichannel connection because
+ * each connection gets clean mono audio instead of interleaved stereo that
+ * Deepgram must demux. Results from mic get channelIndex=0, system get
+ * channelIndex=1, matching the existing speaker identification logic.
+ *
+ * Uses the `ws` package directly instead of the Deepgram SDK, which breaks
+ * in Electron's main process (SDK detects Chromium's global WebSocket and
+ * uses browser-style auth that fails silently).
  */
 
 import WebSocket from 'ws'
@@ -22,15 +27,22 @@ import type {
 
 const DEEPGRAM_WS_URL = 'wss://api.deepgram.com/v1/listen'
 
+interface DeepgramConnection {
+  ws: WebSocket
+  label: string
+  channelIndex: number
+  connected: boolean
+}
+
 export class DeepgramStreamingProvider implements StreamingSttProvider {
   readonly name = 'deepgram'
 
   private config: SttProviderConfig
-  private ws: WebSocket | null = null
+  private micConn: DeepgramConnection | null = null
+  private sysConn: DeepgramConnection | null = null
   private resultCallbacks: SttResultCallback[] = []
   private errorCallbacks: SttErrorCallback[] = []
   private closeCallbacks: (() => void)[] = []
-  private connected = false
 
   constructor(config: SttProviderConfig) {
     this.config = config
@@ -41,17 +53,37 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
   }
 
   async connect(): Promise<void> {
-    if (this.connected) return
+    if (this.micConn?.connected || this.sysConn?.connected) return
 
-    // Build query params for Deepgram live API
+    log.info(
+      `[Deepgram] Connecting two mono connections — model=${this.config.model}, ` +
+        `sampleRate=${this.config.sampleRate}, key=${this.config.apiKey.slice(0, 8)}...`
+    )
+
+    // Connect both in parallel
+    const [mic, sys] = await Promise.all([
+      this.connectOne('mic', 0, false),  // Mic: no diarization
+      this.connectOne('sys', 1, this.config.diarize) // System: diarization on
+    ])
+
+    this.micConn = mic
+    this.sysConn = sys
+    log.info('[Deepgram] Both mono connections established')
+  }
+
+  private connectOne(
+    label: string,
+    channelIndex: number,
+    diarize: boolean
+  ): Promise<DeepgramConnection> {
     const params = new URLSearchParams({
       model: this.config.model,
       language: this.config.language,
       encoding: 'linear16',
       sample_rate: String(this.config.sampleRate),
-      channels: String(this.config.channels),
-      multichannel: String(this.config.channels === 2),
-      diarize: String(this.config.diarize),
+      channels: '1',
+      multichannel: 'false',
+      diarize: String(diarize),
       smart_format: 'true',
       punctuate: 'true',
       interim_results: 'true',
@@ -62,119 +94,122 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
 
     const url = `${DEEPGRAM_WS_URL}?${params.toString()}`
 
-    log.info(
-      `[Deepgram] Connecting — model=${this.config.model}, ` +
-        `channels=${this.config.channels}, sampleRate=${this.config.sampleRate}, ` +
-        `diarize=${this.config.diarize}, key=${this.config.apiKey.slice(0, 8)}...`
-    )
-
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<DeepgramConnection>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error('Deepgram connection timeout (10s)'))
+        reject(new Error(`Deepgram ${label} connection timeout (10s)`))
       }, 10000)
 
-      this.ws = new WebSocket(url, {
+      const ws = new WebSocket(url, {
         headers: {
           Authorization: `Token ${this.config.apiKey}`
         }
       })
 
-      this.ws.on('open', () => {
+      const conn: DeepgramConnection = { ws, label, channelIndex, connected: false }
+
+      ws.on('open', () => {
         clearTimeout(timeout)
-        this.connected = true
-        log.info('[Deepgram] WebSocket connection opened')
-        resolve()
+        conn.connected = true
+        log.info(`[Deepgram] ${label} (ch${channelIndex}) connection opened — diarize=${diarize}`)
+        resolve(conn)
       })
 
-      this.ws.on('message', (data: WebSocket.Data) => {
+      ws.on('message', (data: WebSocket.Data) => {
         try {
           const event = JSON.parse(data.toString())
-          this.handleMessage(event)
+          this.handleMessage(event, channelIndex, label)
         } catch (err) {
-          log.error('[Deepgram] Failed to parse message:', err)
+          log.error(`[Deepgram] ${label} failed to parse message:`, err)
         }
       })
 
-      this.ws.on('error', (err: Error) => {
-        log.error('[Deepgram] WebSocket error:', err.message)
-        for (const cb of this.errorCallbacks) {
-          cb(err)
-        }
-        if (!this.connected) {
+      ws.on('error', (err: Error) => {
+        log.error(`[Deepgram] ${label} WebSocket error:`, err.message)
+        for (const cb of this.errorCallbacks) cb(err)
+        if (!conn.connected) {
           clearTimeout(timeout)
-          reject(new Error(`Deepgram connection failed: ${err.message}`))
+          reject(new Error(`Deepgram ${label} connection failed: ${err.message}`))
         }
       })
 
-      this.ws.on('unexpected-response', (_req, res) => {
+      ws.on('unexpected-response', (_req, res) => {
         let body = ''
         res.on('data', (d: Buffer) => { body += d.toString() })
         res.on('end', () => {
-          const msg = `Deepgram HTTP ${res.statusCode}: ${body.slice(0, 200)}`
+          const msg = `Deepgram ${label} HTTP ${res.statusCode}: ${body.slice(0, 200)}`
           log.error('[Deepgram]', msg)
           const err = new Error(msg)
-          for (const cb of this.errorCallbacks) {
-            cb(err)
-          }
-          if (!this.connected) {
+          for (const cb of this.errorCallbacks) cb(err)
+          if (!conn.connected) {
             clearTimeout(timeout)
             reject(err)
           }
         })
       })
 
-      this.ws.on('close', (code: number, reason: Buffer) => {
-        log.info(`[Deepgram] WebSocket closed — code=${code}, reason=${reason.toString()}`)
-        this.connected = false
-        for (const cb of this.closeCallbacks) {
-          cb()
+      ws.on('close', (code: number, reason: Buffer) => {
+        log.info(`[Deepgram] ${label} WebSocket closed — code=${code}, reason=${reason.toString()}`)
+        conn.connected = false
+        // Fire close callbacks only when both connections are down
+        const otherConn = channelIndex === 0 ? this.sysConn : this.micConn
+        if (!otherConn?.connected) {
+          for (const cb of this.closeCallbacks) cb()
         }
       })
     })
   }
 
-  send(audio: Buffer): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(audio)
+  send(audio: Buffer, source: 'microphone' | 'system'): void {
+    const conn = source === 'microphone' ? this.micConn : this.sysConn
+    if (!conn?.ws || conn.ws.readyState !== WebSocket.OPEN) return
+    conn.ws.send(audio)
   }
 
   finalize(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-    log.info('[Deepgram] Finalizing — sending CloseStream')
-    // Deepgram expects a JSON message to finalize
-    this.ws.send(JSON.stringify({ type: 'CloseStream' }))
+    const closeMsg = JSON.stringify({ type: 'CloseStream' })
+    if (this.micConn?.ws?.readyState === WebSocket.OPEN) {
+      this.micConn.ws.send(closeMsg)
+    }
+    if (this.sysConn?.ws?.readyState === WebSocket.OPEN) {
+      this.sysConn.ws.send(closeMsg)
+    }
+    log.info('[Deepgram] Finalizing — sent CloseStream to both connections')
   }
 
   async disconnect(): Promise<void> {
-    if (!this.ws) return
+    const promises: Promise<void>[] = []
+    if (this.micConn) promises.push(this.closeConn(this.micConn))
+    if (this.sysConn) promises.push(this.closeConn(this.sysConn))
+    await Promise.all(promises)
+    this.micConn = null
+    this.sysConn = null
+  }
 
+  private closeConn(conn: DeepgramConnection): Promise<void> {
     return new Promise<void>((resolve) => {
-      if (this.ws!.readyState === WebSocket.CLOSED) {
-        this.ws = null
+      if (conn.ws.readyState === WebSocket.CLOSED) {
         resolve()
         return
       }
 
       const timeout = setTimeout(() => {
-        log.warn('[Deepgram] Close timeout — forcing disconnect')
-        this.ws?.terminate()
-        this.ws = null
-        this.connected = false
+        log.warn(`[Deepgram] ${conn.label} close timeout — forcing disconnect`)
+        conn.ws.terminate()
+        conn.connected = false
         resolve()
       }, 5000)
 
-      this.ws!.once('close', () => {
+      conn.ws.once('close', () => {
         clearTimeout(timeout)
-        this.ws = null
         resolve()
       })
 
-      this.ws!.close()
+      conn.ws.close()
     })
   }
 
   isConnected(): boolean {
-    return this.connected
+    return !!(this.micConn?.connected && this.sysConn?.connected)
   }
 
   onResult(callback: SttResultCallback): void {
@@ -189,34 +224,32 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
     this.closeCallbacks.push(callback)
   }
 
-  private handleMessage(event: DeepgramEvent): void {
+  private handleMessage(event: DeepgramEvent, channelIndex: number, label: string): void {
     switch (event.type) {
       case 'Results':
-        this.handleTranscriptEvent(event)
+        this.handleTranscriptEvent(event as DeepgramTranscriptEvent, channelIndex, label)
         break
       case 'Metadata':
-        log.debug('[Deepgram] Metadata:', JSON.stringify(event))
+        log.debug(`[Deepgram] ${label} Metadata:`, JSON.stringify(event))
         break
       case 'UtteranceEnd':
-        log.debug('[Deepgram] Utterance end')
+        log.debug(`[Deepgram] ${label} Utterance end`)
         break
       case 'SpeechStarted':
-        log.debug('[Deepgram] Speech started')
+        log.debug(`[Deepgram] ${label} Speech started`)
         break
       default:
-        log.debug('[Deepgram] Unhandled event:', event.type)
+        log.debug(`[Deepgram] ${label} Unhandled event:`, event.type)
     }
   }
 
-  private handleTranscriptEvent(event: DeepgramTranscriptEvent): void {
+  private handleTranscriptEvent(
+    event: DeepgramTranscriptEvent,
+    channelIndex: number,
+    label: string
+  ): void {
     const alt = event.channel?.alternatives?.[0]
     if (!alt || !alt.transcript) return
-
-    const channelIndex = event.channel_index?.[0]
-    if (channelIndex === undefined) {
-      log.warn('[Deepgram] Result missing channel_index — dropping to avoid speaker misattribution')
-      return
-    }
 
     const words = (alt.words ?? []).map((w: DeepgramWord) => ({
       word: w.word,
@@ -241,13 +274,11 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
     }
 
     log.info(
-      `[Deepgram] Ch${channelIndex} (${channelIndex === 0 ? 'mic' : 'sys'}) ` +
+      `[Deepgram] ${label} (ch${channelIndex}) ` +
         `speaker=${speakerId}: "${alt.transcript.slice(0, 80)}${alt.transcript.length > 80 ? '...' : ''}"`
     )
 
-    for (const cb of this.resultCallbacks) {
-      cb(result)
-    }
+    for (const cb of this.resultCallbacks) cb(result)
   }
 }
 

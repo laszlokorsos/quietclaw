@@ -34,6 +34,12 @@ export interface CalendarSettingsConfig {
   use_for_speaker_id: boolean
 }
 
+export interface AudioConfig {
+  echo_cancellation: boolean
+  agc: boolean
+  disable_echo_cancellation_on_headphones: boolean
+}
+
 export interface SttConfig {
   provider: 'deepgram' | 'assemblyai' | 'openai_whisper' | 'whisper_local'
   deepgram: {
@@ -84,6 +90,7 @@ export interface AppConfig {
     theme: 'system' | 'light' | 'dark'
     launch_at_login: boolean
   }
+  audio: AudioConfig
   consent: ConsentConfig
   calendar: {
     accounts: CalendarAccountConfig[]
@@ -115,6 +122,11 @@ function getDefaults(): AppConfig {
       theme: 'dark' as const,
       launch_at_login: true
     },
+    audio: {
+      echo_cancellation: true,
+      agc: true,
+      disable_echo_cancellation_on_headphones: true
+    },
     consent: {
       auto_message_enabled: false,
       auto_message_text: "I'm using QuietClaw to transcribe this meeting for my notes.",
@@ -132,7 +144,7 @@ function getDefaults(): AppConfig {
     stt: {
       provider: 'deepgram',
       deepgram: {
-        model: 'nova-2',
+        model: 'nova-3',
         language: 'en',
         diarize: true
       }

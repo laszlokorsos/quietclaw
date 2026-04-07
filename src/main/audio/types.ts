@@ -13,6 +13,12 @@ export interface CaptureOptions {
   captureSystemAudio: boolean
   /** Whether to capture microphone (you) */
   captureMicrophone: boolean
+  /** Enable Apple Voice Processing echo cancellation on mic (default: true) */
+  enableEchoCancellation?: boolean
+  /** Enable automatic gain control when echo cancellation is on (default: true) */
+  enableAGC?: boolean
+  /** Skip echo cancellation when headphones are detected (default: true) */
+  disableEchoCancellationOnHeadphones?: boolean
 }
 
 export interface AudioChunk {

@@ -3,8 +3,8 @@
  * to final transcript output.
  *
  * Flow:
- *   1. Start recording → audio capture begins
- *   2. Audio chunks arrive → interleave mic+system into stereo → stream to Deepgram
+ *   1. Start recording → audio capture begins (with echo cancellation)
+ *   2. Audio chunks arrive → send mono to separate STT connections (mic + system)
  *   3. STT results arrive → speaker identification → accumulate segments
  *   4. Stop recording → finalize STT → assemble transcript → write files
  */
@@ -12,8 +12,9 @@
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log/main'
 import { loadConfig } from '../config/settings'
-import { getDeepgramApiKey } from '../config/secrets'
+import { getDeepgramApiKey, getAssemblyAIApiKey } from '../config/secrets'
 import { DeepgramStreamingProvider } from './stt/deepgram'
+import { AssemblyAIStreamingProvider } from './stt/assemblyai'
 import { SpeakerIdentifier } from './speaker-id'
 import { writeMeetingFiles } from '../storage/files'
 import { indexMeeting } from '../storage/db'
@@ -23,7 +24,7 @@ import { AnthropicSummarizer } from './summarizer/anthropic'
 import { writeSummaryFiles } from '../storage/files'
 import { markSummarized } from '../storage/db'
 import { notifyMeetingSummarized } from '../api/ws'
-import { concatFloat32Arrays, padWithSilence, generateSlug } from './utils'
+import { concatFloat32Arrays, generateSlug } from './utils'
 import type { MatchResult } from '../calendar/matcher'
 import type { StreamingSttProvider, SttResult } from './stt/provider'
 import type { AudioCaptureProvider, AudioChunk } from '../audio/types'
@@ -184,37 +185,53 @@ export class PipelineOrchestrator {
       attendees: attendees.length > 0 ? attendees : undefined
     })
 
-    // Initialize STT provider
+    // Initialize STT provider (Deepgram primary, AssemblyAI fallback)
+    // Each provider manages two separate mono connections internally
+    // (one for mic, one for system audio — matching Granola's approach)
     this.sttProvider = new DeepgramStreamingProvider({
       apiKey,
       model: config.stt.deepgram.model,
       language: config.stt.deepgram.language,
       diarize: config.stt.deepgram.diarize,
       sampleRate: 16000,
-      channels: 2 // Stereo: mic left, system right
+      channels: 1 // Each connection is mono; provider manages two internally
     })
 
-    this.sttProvider.onResult((result: SttResult) => {
-      this.handleSttResult(result)
-    })
+    this.setupSttCallbacks()
 
-    this.sttProvider.onError((error: Error) => {
-      log.error('[Pipeline] STT error:', error)
-      this.events.onError?.(error)
-    })
-
-    this.sttProvider.onClose(() => {
-      log.info('[Pipeline] STT connection closed')
-    })
-
-    // Connect to Deepgram
+    // Connect — try Deepgram first, fall back to AssemblyAI
     try {
       await this.sttProvider.connect()
-    } catch (err) {
-      log.error('[Pipeline] Failed to connect to Deepgram:', err)
-      this.cleanup()
-      this.setState('idle')
-      throw err
+    } catch (deepgramErr) {
+      log.warn('[Pipeline] Deepgram connection failed, trying AssemblyAI fallback:', deepgramErr)
+
+      const assemblyKey = getAssemblyAIApiKey()
+      if (assemblyKey) {
+        this.sttProvider = new AssemblyAIStreamingProvider({
+          apiKey: assemblyKey,
+          model: 'universal',
+          language: config.stt.deepgram.language,
+          diarize: false, // AssemblyAI real-time doesn't support diarization
+          sampleRate: 16000,
+          channels: 1 // Each connection is mono
+        })
+        this.setupSttCallbacks()
+
+        try {
+          await this.sttProvider.connect()
+          log.info('[Pipeline] Connected to AssemblyAI fallback')
+        } catch (assemblyErr) {
+          log.error('[Pipeline] AssemblyAI fallback also failed:', assemblyErr)
+          this.cleanup()
+          this.setState('idle')
+          throw deepgramErr // Throw original error
+        }
+      } else {
+        log.error('[Pipeline] No AssemblyAI key configured for fallback')
+        this.cleanup()
+        this.setState('idle')
+        throw deepgramErr
+      }
     }
 
     // Set up audio capture callback — buffer chunks for interleaving
@@ -233,11 +250,16 @@ export class PipelineOrchestrator {
       this.flushAudioBuffers()
     }, 200)
 
-    // Start audio capture
+    // Start audio capture with echo cancellation (matches Granola's approach:
+    // Apple Voice Processing IO cancels speaker bleed from mic using system
+    // audio output as reference signal)
     await this.audioCapture.startCapture({
       sampleRate: 16000,
       captureSystemAudio: true,
-      captureMicrophone: true
+      captureMicrophone: true,
+      enableEchoCancellation: config.audio.echo_cancellation,
+      enableAGC: config.audio.agc,
+      disableEchoCancellationOnHeadphones: config.audio.disable_echo_cancellation_on_headphones
     })
 
     this.setState('recording')
@@ -289,7 +311,7 @@ export class PipelineOrchestrator {
     // Final flush of any remaining buffered audio
     this.flushAudioBuffers()
 
-    log.info(`[Pipeline] Audio capture stopped — sent ${this.chunksSent} stereo packets total`)
+    log.info(`[Pipeline] Audio capture stopped — sent ${this.chunksSent} audio packets total`)
 
     // Finalize STT — Deepgram sends remaining results then closes the connection
     if (this.sttProvider?.isConnected()) {
@@ -335,7 +357,7 @@ export class PipelineOrchestrator {
     const transcript: Transcript = {
       segments: this.segments,
       duration,
-      provider: 'deepgram',
+      provider: this.sttProvider?.name ?? 'deepgram',
       model: config.stt.deepgram.model,
       language: config.stt.deepgram.language
     }
@@ -422,11 +444,11 @@ export class PipelineOrchestrator {
   }
 
   /**
-   * Flush buffered mic and system audio as a single interleaved stereo packet.
+   * Flush buffered mic and system audio as separate mono packets.
    *
    * Called every 200ms. Concatenates all buffered chunks for each channel,
-   * pads the shorter channel with silence to match lengths, interleaves
-   * into stereo Int16 PCM, and sends to Deepgram.
+   * converts to mono Int16 PCM, and sends each to the STT provider's
+   * corresponding connection (mic or system).
    */
   private flushAudioBuffers(): void {
     if (this.micBuffer.length === 0 && this.sysBuffer.length === 0) return
@@ -437,42 +459,34 @@ export class PipelineOrchestrator {
     this.micBuffer = []
     this.sysBuffer = []
 
-    // Pad shorter channel with silence
-    const length = Math.max(mic.length, sys.length)
-    const micPadded = mic.length >= length ? mic : padWithSilence(mic, length)
-    const sysPadded = sys.length >= length ? sys : padWithSilence(sys, length)
-
-    const stereo = this.interleaveStereo(micPadded, sysPadded)
-    this.sttProvider?.send(stereo)
+    // Send each channel as mono Int16 PCM to its own connection
+    if (mic.length > 0) {
+      this.sttProvider?.send(this.float32ToInt16(mic), 'microphone')
+    }
+    if (sys.length > 0) {
+      this.sttProvider?.send(this.float32ToInt16(sys), 'system')
+    }
     this.chunksSent++
 
     if (this.chunksSent % 25 === 0) {
-      log.info(`[Pipeline] Sent ${this.chunksSent} stereo packets to Deepgram (${length} samples)`)
+      log.info(
+        `[Pipeline] Sent ${this.chunksSent} packets — ` +
+          `mic=${mic.length} sys=${sys.length} samples`
+      )
     }
   }
 
   /**
-   * Interleave two mono Float32Arrays into a stereo Int16 PCM buffer.
-   *
-   * Deepgram expects linear16 (signed 16-bit PCM), so we convert
-   * from Float32 [-1, 1] to Int16 [-32768, 32767].
+   * Convert Float32 audio [-1, 1] to mono Int16 PCM buffer (linear16).
+   * Deepgram and AssemblyAI both expect linear16 encoding.
    */
-  private interleaveStereo(left: Float32Array, right: Float32Array): Buffer {
-    const length = Math.min(left.length, right.length)
-    // Stereo interleaved: L0 R0 L1 R1 ... — 2 bytes per sample, 2 channels
-    const buffer = Buffer.alloc(length * 2 * 2)
-
-    for (let i = 0; i < length; i++) {
-      // Clamp and convert Float32 to Int16
-      const l = Math.max(-1, Math.min(1, left[i]))
-      const r = Math.max(-1, Math.min(1, right[i]))
-      const li = l < 0 ? l * 32768 : l * 32767
-      const ri = r < 0 ? r * 32768 : r * 32767
-
-      buffer.writeInt16LE(Math.round(li), i * 4)
-      buffer.writeInt16LE(Math.round(ri), i * 4 + 2)
+  private float32ToInt16(samples: Float32Array): Buffer {
+    const buffer = Buffer.alloc(samples.length * 2)
+    for (let i = 0; i < samples.length; i++) {
+      const clamped = Math.max(-1, Math.min(1, samples[i]))
+      const int16 = clamped < 0 ? clamped * 32768 : clamped * 32767
+      buffer.writeInt16LE(Math.round(int16), i * 2)
     }
-
     return buffer
   }
 
@@ -486,6 +500,19 @@ export class PipelineOrchestrator {
    * with later ones. This way we keep data even if the final never arrives
    * (e.g., when we disconnect shortly after stopping recording).
    */
+  private setupSttCallbacks(): void {
+    this.sttProvider!.onResult((result: SttResult) => {
+      this.handleSttResult(result)
+    })
+    this.sttProvider!.onError((error: Error) => {
+      log.error('[Pipeline] STT error:', error)
+      this.events.onError?.(error)
+    })
+    this.sttProvider!.onClose(() => {
+      log.info('[Pipeline] STT connection closed')
+    })
+  }
+
   private handleSttResult(result: SttResult): void {
     if (!result.transcript.trim()) return
     if (!this.speakerIdentifier) return

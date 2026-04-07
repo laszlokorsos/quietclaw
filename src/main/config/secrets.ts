@@ -128,6 +128,17 @@ export function setAnthropicApiKey(key: string): void {
   setSecret('quietclaw:anthropic:api_key', key)
 }
 
+export function getAssemblyAIApiKey(): string | null {
+  const stored = getSecret('quietclaw:assemblyai:api_key')
+  if (stored) return stored
+  if (process.env.ASSEMBLYAI_API_KEY) return process.env.ASSEMBLYAI_API_KEY
+  return null
+}
+
+export function setAssemblyAIApiKey(key: string): void {
+  setSecret('quietclaw:assemblyai:api_key', key)
+}
+
 export function getCalendarRefreshToken(email: string): string | null {
   return getSecret(`quietclaw:calendar:${email}:refresh_token`)
 }

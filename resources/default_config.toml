@@ -9,6 +9,11 @@ audio_retention_days = 30          # Only applies when retain_audio = true
 markdown_output = true             # Generate human-readable .md files alongside JSON
 launch_at_login = true             # Start QuietClaw automatically when you log in
 
+[audio]
+echo_cancellation = true           # Apple Voice Processing echo cancellation on mic input
+agc = true                         # Automatic gain control (when echo cancellation is on)
+disable_echo_cancellation_on_headphones = true  # Skip AEC when headphones detected (no bleed)
+
 [consent]
 auto_message_enabled = false       # Auto-send a consent message in meeting chat
 auto_message_text = "I'm using QuietClaw to transcribe this meeting for my notes."
@@ -31,7 +36,7 @@ use_for_speaker_id = true
 provider = "deepgram"              # deepgram (MVP). Additional providers in Phase 2.
 
 [stt.deepgram]
-model = "nova-2"
+model = "nova-3"
 language = "en"
 diarize = true
 

@@ -16,6 +16,7 @@ import log from 'electron-log/main'
 import { loadConfig } from '../config/settings'
 import { matchRecordingToEvent } from '../calendar/matcher'
 import { syncNow } from '../calendar/sync'
+import { MicMonitor } from './mic-monitor'
 import type { MacOSAudioCapture, MeetingDetectionEvent } from './capture-macos'
 import type { PipelineOrchestrator } from '../pipeline/orchestrator'
 
@@ -23,6 +24,7 @@ let enabled = false
 let audioCapture: MacOSAudioCapture | null = null
 let activeOrchestrator: PipelineOrchestrator | null = null
 let activeMeetingBundleId: string | null = null
+let micMonitor: MicMonitor | null = null
 
 /** Consecutive "meeting:ended" polls before we actually stop. Prevents false stops from brief window flicker. */
 const MISSED_POLLS_REQUIRED = 3
@@ -45,11 +47,20 @@ export function startAutoRecord(
   activeOrchestrator = orchestrator
   enabled = true
 
+  // Start mic app monitor — tracks which apps are using the microphone.
+  // Uses macOS log stream to identify specific apps (not just "any app").
+  micMonitor = new MicMonitor()
+  micMonitor.start((meetingApps, allApps) => {
+    if (meetingApps.length > 0) {
+      log.info(`[AutoRecord] Mic monitor: meeting app(s) detected — ${meetingApps.join(', ')}`)
+    }
+  })
+
   capture.startMeetingDetection((event: MeetingDetectionEvent) => {
     handleMeetingEvent(event)
   })
 
-  log.info('[AutoRecord] Meeting detection started — listening for call apps')
+  log.info('[AutoRecord] Meeting detection started — listening for call apps + mic monitor')
 }
 
 /**
@@ -57,6 +68,10 @@ export function startAutoRecord(
  */
 export function stopAutoRecord(): void {
   enabled = false
+  if (micMonitor) {
+    micMonitor.stop()
+    micMonitor = null
+  }
   if (audioCapture?.isMeetingDetectionActive()) {
     audioCapture.stopMeetingDetection()
   }
@@ -91,6 +106,20 @@ function handleMeetingEvent(event: MeetingDetectionEvent): void {
 
     // If already recording (manually), don't interfere
     if (activeOrchestrator.getState() !== 'idle') return
+
+    // Cross-check with mic monitor: if we have mic app data, verify that a
+    // known meeting app is actually using the mic. This filters out false
+    // positives from apps like Wispr Flow or Siri keeping the mic open.
+    // Skip this check for browser-based meetings (🔊 in title is sufficient).
+    if (micMonitor && !event.windowTitle?.includes('\u{1F50A}')) {
+      const micApps = micMonitor.getMicApps()
+      if (micApps.length > 0 && !micMonitor.isMeetingAppUsingMic()) {
+        log.debug(
+          `[AutoRecord] Skipping detection — mic used by non-meeting app(s): ${micApps.join(', ')}`
+        )
+        return
+      }
+    }
 
     log.info(
       `[AutoRecord] Meeting detected: ${event.bundleId}` +

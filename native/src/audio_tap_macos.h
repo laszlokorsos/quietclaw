@@ -30,8 +30,13 @@ public:
     // Check if we have Screen Recording permission
     bool HasPermission();
 
-    // Start capturing both system and mic audio
-    void StartCapture(uint32_t sampleRate, AudioCallback callback);
+    // Start capturing both system and mic audio.
+    // enableEchoCancellation: use Apple Voice Processing IO for AEC on mic input.
+    // enableAGC: enable automatic gain control (only when echo cancellation is on).
+    // disableEchoCancellationOnHeadphones: skip AEC when headphones detected.
+    void StartCapture(uint32_t sampleRate, bool enableEchoCancellation,
+                      bool enableAGC, bool disableEchoCancellationOnHeadphones,
+                      AudioCallback callback);
 
     // Stop capturing and clean up
     void StopCapture();
@@ -57,9 +62,10 @@ public:
 
 private:
     void StartSystemCapture(uint32_t sampleRate);
-    void StartMicCapture(uint32_t sampleRate);
+    void StartMicCapture(uint32_t sampleRate, bool enableEchoCancellation, bool enableAGC);
     void StopSystemCapture();
     void StopMicCapture();
+    static bool IsHeadphonesConnected();
     void DeliverAudio(const char* source, float* samples, size_t count, double timestamp);
 
     AudioCallback jsCallback_;

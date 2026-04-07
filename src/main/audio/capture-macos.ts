@@ -25,7 +25,13 @@ interface NativeAudioTap {
   hasPermission(): boolean
   requestPermissions(): Promise<boolean>
   startCapture(
-    options: { sampleRate: number; tempFilePath?: string },
+    options: {
+      sampleRate: number
+      tempFilePath?: string
+      enableEchoCancellation?: boolean
+      enableAGC?: boolean
+      disableEchoCancellationOnHeadphones?: boolean
+    },
     callback: (data: { source: string; buffer: Float32Array; timestamp: number }) => void
   ): void
   stopCapture(): void
@@ -91,7 +97,10 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
     this.native.startCapture(
       {
         sampleRate: options.sampleRate,
-        tempFilePath: this.tempFilePath
+        tempFilePath: this.tempFilePath,
+        enableEchoCancellation: options.enableEchoCancellation ?? true,
+        enableAGC: options.enableAGC ?? true,
+        disableEchoCancellationOnHeadphones: options.disableEchoCancellationOnHeadphones ?? true
       },
       (data) => {
         if (this.callback) {

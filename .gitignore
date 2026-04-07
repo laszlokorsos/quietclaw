@@ -32,3 +32,6 @@ meetings/
 # Claude Code working files
 .claude/
 tasks/
+
+# Competitor app bundles (analysis only, never commit)
+Granola.app/

@@ -170,15 +170,24 @@ bool AudioTapMacOS::HasPermission() {
     return CGPreflightScreenCaptureAccess();
 }
 
-void AudioTapMacOS::StartCapture(uint32_t sampleRate, AudioCallback callback) {
+void AudioTapMacOS::StartCapture(uint32_t sampleRate, bool enableEchoCancellation,
+                                  bool enableAGC, bool disableEchoCancellationOnHeadphones,
+                                  AudioCallback callback) {
     if (capturing_) return;
 
     sampleRate_ = sampleRate;
     jsCallback_ = std::move(callback);
     capturing_ = true;
 
+    // Determine whether to actually enable echo cancellation
+    bool useEchoCancellation = enableEchoCancellation;
+    if (enableEchoCancellation && disableEchoCancellationOnHeadphones && IsHeadphonesConnected()) {
+        NSLog(@"[QuietClaw] Headphones detected — disabling echo cancellation");
+        useEchoCancellation = false;
+    }
+
     StartSystemCapture(sampleRate);
-    StartMicCapture(sampleRate);
+    StartMicCapture(sampleRate, useEchoCancellation, enableAGC);
 }
 
 void AudioTapMacOS::StopCapture() {
@@ -281,13 +290,32 @@ void AudioTapMacOS::StartSystemCapture(uint32_t sampleRate) {
     }
 }
 
-void AudioTapMacOS::StartMicCapture(uint32_t sampleRate) {
+void AudioTapMacOS::StartMicCapture(uint32_t sampleRate, bool enableEchoCancellation, bool enableAGC) {
     AVAudioEngine* engine = [[AVAudioEngine alloc] init];
     AVAudioInputNode* inputNode = [engine inputNode];
 
+    // Enable Apple Voice Processing IO for echo cancellation.
+    // This uses the same Core Audio voice processing unit that Granola uses —
+    // it takes the system audio output as an echo reference and cancels speaker
+    // bleed from the mic input. Also applies noise suppression.
+    // Must be called BEFORE starting the engine.
+    if (enableEchoCancellation) {
+        NSError* vpError = nil;
+        BOOL vpOk = [inputNode setVoiceProcessingEnabled:YES error:&vpError];
+        if (vpOk) {
+            NSLog(@"[QuietClaw] Voice Processing enabled (echo cancellation active)");
+            // Configure AGC — enabled by default with VPIO, but make it configurable
+            inputNode.voiceProcessingAGCEnabled = enableAGC;
+            NSLog(@"[QuietClaw] Voice Processing AGC: %s", enableAGC ? "enabled" : "disabled");
+        } else {
+            NSLog(@"[QuietClaw] Failed to enable Voice Processing: %@", vpError);
+            NSLog(@"[QuietClaw] Continuing without echo cancellation");
+        }
+    } else {
+        NSLog(@"[QuietClaw] Voice Processing disabled — raw mic capture");
+    }
 
-    // Install a tap on the input node
-    // Note: the tap format may differ from desired; we handle conversion below
+    // Get the format AFTER enabling voice processing (VPIO may change the format)
     AVAudioFormat* inputFormat = [inputNode outputFormatForBus:0];
 
     // Use a buffer size that gives ~100ms chunks
@@ -335,7 +363,8 @@ void AudioTapMacOS::StartMicCapture(uint32_t sampleRate) {
     }
 
     audioEngine_ = (__bridge_retained void*)engine;
-    NSLog(@"[QuietClaw] Microphone capture started (sample rate: %u)", sampleRate);
+    NSLog(@"[QuietClaw] Microphone capture started (sample rate: %u, echo cancellation: %s, AGC: %s)",
+          sampleRate, enableEchoCancellation ? "on" : "off", enableAGC ? "on" : "off");
 }
 
 void AudioTapMacOS::StopSystemCapture() {
@@ -437,6 +466,44 @@ void AudioTapMacOS::FlushToTempFile() {
 }
 
 // ---------------------------------------------------------------------------
+// Headphone detection — check if the default output device is headphones
+// (USB, Bluetooth, etc.) vs. built-in speakers. Used to optionally skip
+// echo cancellation when headphones are plugged in (no speaker bleed).
+// ---------------------------------------------------------------------------
+
+bool AudioTapMacOS::IsHeadphonesConnected() {
+    AudioDeviceID outputDevice = 0;
+    UInt32 size = sizeof(outputDevice);
+    AudioObjectPropertyAddress addr = {
+        .mSelector = kAudioHardwarePropertyDefaultOutputDevice,
+        .mScope = kAudioObjectPropertyScopeGlobal,
+        .mElement = kAudioObjectPropertyElementMain
+    };
+    OSStatus status = AudioObjectGetPropertyData(
+        kAudioObjectSystemObject, &addr, 0, NULL, &size, &outputDevice);
+    if (status != noErr || outputDevice == 0) return false;
+
+    // Check transport type of the output device
+    UInt32 transportType = 0;
+    size = sizeof(transportType);
+    AudioObjectPropertyAddress transportAddr = {
+        .mSelector = kAudioDevicePropertyTransportType,
+        .mScope = kAudioObjectPropertyScopeOutput,
+        .mElement = kAudioObjectPropertyElementMain
+    };
+    status = AudioObjectGetPropertyData(outputDevice, &transportAddr, 0, NULL, &size, &transportType);
+    if (status != noErr) return false;
+
+    // Built-in speakers = not headphones. Everything else (USB, Bluetooth,
+    // HDMI, Thunderbolt, etc.) is external audio = headphones/earbuds.
+    bool isExternal = transportType != kAudioDeviceTransportTypeBuiltIn;
+    if (isExternal) {
+        NSLog(@"[QuietClaw] Output device transport type: 0x%08X (external/headphones)", transportType);
+    }
+    return isExternal;
+}
+
+// ---------------------------------------------------------------------------
 // Meeting Detection — listens for mic activation, then checks which known
 // meeting apps are running and whether browser windows have meeting titles.
 //
@@ -465,28 +532,39 @@ static bool IsNativeMeetingApp(NSString* bundleId) {
     return [meetingApps containsObject:bundleId];
 }
 
+// Check if Zoom is in an active meeting by inspecting its menu bar via AppleScript.
+// The "Meeting" menu bar item ONLY exists when Zoom is in an active call.
+// Requires Accessibility permission — returns false if not granted.
+static bool IsZoomInMeetingViaAppleScript() {
+    static bool loggedPermissionError = false;
+    NSAppleScript* script = [[NSAppleScript alloc] initWithSource:
+        @"tell application \"System Events\"\n"
+         "  tell process \"zoom.us\"\n"
+         "    return exists menu bar item \"Meeting\" of menu bar 1\n"
+         "  end tell\n"
+         "end tell"];
+    NSDictionary* errorDict = nil;
+    NSAppleEventDescriptor* result = [script executeAndReturnError:&errorDict];
+    if (errorDict) {
+        if (!loggedPermissionError) {
+            NSLog(@"[QuietClaw] Zoom AppleScript check failed (Accessibility permission needed?): %@",
+                  errorDict[NSAppleScriptErrorMessage] ?: @"unknown error");
+            loggedPermissionError = true;
+        }
+        return false;
+    }
+    return [result booleanValue];
+}
+
 // Window titles that indicate an active call in a native meeting app.
 // Must distinguish from the app's home screen or lobby.
 static bool IsNativeAppInMeeting(NSString* bundleId, NSString* title) {
     if (!title || title.length == 0) return false;
 
     if ([bundleId isEqualToString:@"us.zoom.xos"]) {
-        // Zoom shows the meeting topic as the window title during a call
-        // (e.g., "Weekly Standup", "Zoom Meeting"). Non-meeting windows
-        // have known titles we can exclude.
-        if ([title isEqualToString:@"Zoom"] ||
-            [title containsString:@"Zoom Workplace"] ||
-            [title containsString:@"Settings"] ||
-            [title containsString:@"Waiting"] ||
-            [title containsString:@"Chat"] ||
-            [title containsString:@"Schedule"] ||
-            [title containsString:@"Contacts"] ||
-            [title containsString:@"Whiteboard"] ||
-            [title containsString:@"Notes"] ||
-            [title containsString:@"Clips"] ||
-            [title containsString:@"AI Companion"] ||
-            title.length < 3) return false;
-        return true;
+        // Use AppleScript to check for "Meeting" menu bar item — only exists during a call.
+        // This is far more reliable than window title matching (Granola's approach).
+        return IsZoomInMeetingViaAppleScript();
     }
 
     if ([bundleId hasPrefix:@"com.microsoft.teams"]) {
@@ -746,11 +824,15 @@ void AudioTapMacOS::CheckForActiveMeeting() {
                     }
 
                     // Check native meeting app windows (Zoom, Teams, etc.)
-                    // Require mic to be active — browser detection has 🔊 as a gate,
-                    // native apps need the mic check to avoid false positives from
-                    // apps that are open but not in an active call.
-                    if (IsNativeMeetingApp(bundleId) && IsNativeAppInMeeting(bundleId, title)
-                        && this->IsMicRunning()) {
+                    // For Zoom: IsNativeAppInMeeting uses AppleScript to check for
+                    // the "Meeting" menu bar item — only exists during active calls.
+                    // For other apps: require mic to be active as a gate.
+                    if (IsNativeMeetingApp(bundleId) && IsNativeAppInMeeting(bundleId, title)) {
+                        // Zoom's AppleScript check is self-sufficient — no mic check needed.
+                        // Other native apps still need mic running as a signal.
+                        if (![bundleId isEqualToString:@"us.zoom.xos"] && !this->IsMicRunning()) {
+                            continue;
+                        }
                         detectedBundleId = bundleId;
                         detectedTitle = title;
                         break;

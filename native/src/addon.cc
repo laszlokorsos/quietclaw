@@ -89,6 +89,21 @@ Napi::Value StartCapture(const Napi::CallbackInfo& info) {
         sampleRate = options.Get("sampleRate").As<Napi::Number>().Uint32Value();
     }
 
+    bool enableEchoCancellation = true;
+    if (options.Has("enableEchoCancellation")) {
+        enableEchoCancellation = options.Get("enableEchoCancellation").As<Napi::Boolean>().Value();
+    }
+
+    bool enableAGC = true;
+    if (options.Has("enableAGC")) {
+        enableAGC = options.Get("enableAGC").As<Napi::Boolean>().Value();
+    }
+
+    bool disableEchoCancellationOnHeadphones = true;
+    if (options.Has("disableEchoCancellationOnHeadphones")) {
+        disableEchoCancellationOnHeadphones = options.Get("disableEchoCancellationOnHeadphones").As<Napi::Boolean>().Value();
+    }
+
     if (options.Has("tempFilePath")) {
         std::string tempPath = options.Get("tempFilePath").As<Napi::String>().Utf8Value();
         g_audioTap->SetTempFilePath(tempPath);
@@ -98,7 +113,8 @@ Napi::Value StartCapture(const Napi::CallbackInfo& info) {
     auto tsfn = Napi::ThreadSafeFunction::New(
         env, callback, "audioCallback", 0, 1);
 
-    g_audioTap->StartCapture(sampleRate, std::move(tsfn));
+    g_audioTap->StartCapture(sampleRate, enableEchoCancellation, enableAGC,
+                             disableEchoCancellationOnHeadphones, std::move(tsfn));
 #else
     Napi::Error::New(env, "Audio capture not available on this platform").ThrowAsJavaScriptException();
 #endif

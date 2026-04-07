@@ -403,7 +403,7 @@ export const openApiSpec = {
           segments: { type: 'array', items: { $ref: '#/components/schemas/TranscriptSegment' } },
           duration: { type: 'number', description: 'Total audio duration in seconds' },
           provider: { type: 'string', example: 'deepgram' },
-          model: { type: 'string', example: 'nova-2' },
+          model: { type: 'string', example: 'nova-3' },
           language: { type: 'string', example: 'en' }
         }
       },
