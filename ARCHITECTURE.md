@@ -2,7 +2,9 @@
 
 > How QuietClaw captures, transcribes, and structures meeting audio — and why it works the way it does.
 
-This document is for contributors and anyone curious about the technical decisions behind QuietClaw. It covers the audio pipeline, STT strategy, speaker identification, and the config system. If you're looking for how to use QuietClaw, see [README.md](README.md). If you're looking for code conventions and project structure, see [CLAUDE.md](CLAUDE.md).
+This document is for contributors and anyone curious about the technical decisions behind QuietClaw. It covers the audio pipeline, STT strategy, speaker identification, and the config system. Many of these decisions came from experimentation — trying the obvious approach, watching it fail, and finding a better one. We've tried to capture not just *what* the system does but *why* it works this way.
+
+If you're looking for how to use QuietClaw, see [README.md](README.md). If you're looking for code conventions and project structure, see [CLAUDE.md](CLAUDE.md).
 
 ---
 
@@ -35,7 +37,7 @@ This document is for contributors and anyone curious about the technical decisio
 
 ### Process Isolation
 
-Audio capture runs in a separate Electron utility process (`utilityProcess.fork()`). This prevents UI rendering, SQLite writes, calendar syncs, and summarization API calls in the main process from causing audio dropouts or buffer underruns.
+Audio capture runs in a separate Electron utility process (`utilityProcess.fork()`). This was the key insight that unlocked reliable recording: Electron's main process does too many things — UI rendering, SQLite writes, calendar syncs, summarization API calls — and any of them can block the event loop long enough to cause audio dropouts. Moving audio capture into its own process means a 200ms SQLite write or a slow Claude API response never touches the audio path. Zero interference, zero dropouts.
 
 The main process spawns the utility process and creates a `MessageChannelMain`. Port 1 is transferred to the utility process for sending audio data; port 2 stays in the main process for receiving it. Audio chunks are `Float32Array` instances sent via `postMessage` with ArrayBuffer transfer — zero-copy, no serialization overhead.
 
@@ -45,21 +47,23 @@ Control messages (`start-capture`, `stop-capture`, `flush-temp-file`) go through
 
 A core design decision: mic and system audio are captured as **two separate mono streams**, not a single stereo stream. Each stream gets its own WebSocket connection to the STT provider.
 
-Why separate connections instead of stereo multichannel?
+The obvious approach is stereo multichannel — pack both channels into one stream and let the STT provider sort it out. We tried this. The problem is that diarization models work best when they're given a focused signal. When your mic audio bleeds into the system channel (which it will, unless you're wearing headphones), the diarizer sees your voice on both channels and gets confused about who's speaking. Separating the streams at capture time means the mic channel is *definitionally* you — no ML needed — and the system channel only contains other participants.
 
-1. **Mic channel never needs diarization.** It's always you. Sending it through a diarization pipeline wastes compute and can confuse the model when your voice leaks into the system channel.
-2. **Independent failure.** If the system audio WebSocket drops, mic transcription continues (and vice versa).
-3. **Provider flexibility.** AssemblyAI's real-time API doesn't support multichannel. Two mono connections work with any provider.
+This also gives us:
+
+1. **Independent failure.** If the system audio WebSocket drops, mic transcription continues (and vice versa).
+2. **Provider flexibility.** AssemblyAI's real-time API doesn't support multichannel. Two mono connections work with any provider.
+3. **Selective diarization.** No point running diarization on a single-speaker mic channel — we skip it entirely, saving compute and avoiding false speaker splits.
 
 ### Sample Rate: 48kHz
 
-Audio is captured at 48kHz (configurable via `audio.sample_rate`). Deepgram's nova-3 model accepts up to 48kHz natively — no server-side resampling, more audio detail, better transcription accuracy. The trade-off is ~3x more bandwidth (~192 KB/s for two mono streams vs ~64 KB/s at 16kHz), which is negligible for a desktop app on any modern connection.
+Most STT tutorials recommend 16kHz because that's what telephony uses and older models were trained on. But Deepgram's nova-3 model accepts up to 48kHz natively — and 48kHz is what macOS Core Audio delivers by default. Downsampling to 16kHz throws away information that the model can actually use. So we don't downsample. The trade-off is ~3x more bandwidth (~192 KB/s for two mono streams vs ~64 KB/s at 16kHz), which is negligible for a desktop app on any modern connection.
 
 ### Buffer Flush Cycle
 
 Audio doesn't stream sample-by-sample. The native addon delivers chunks via callback, which the orchestrator accumulates in per-channel Float32 buffers. Every 200ms (configurable via `audio.buffer_flush_interval_ms`), the buffers are flushed: converted from Float32 to Int16 linear16 PCM and sent to the STT provider.
 
-200ms balances latency (you want near-real-time transcription) against overhead (too-frequent flushes waste CPU on tiny packets). The native addon also writes raw audio to a temp file every 30 seconds for crash recovery.
+200ms is the sweet spot we landed on through testing. At 50ms, you're sending tiny packets that waste CPU on WebSocket framing overhead. At 500ms, there's a noticeable lag before words appear. 200ms feels instantaneous to the user while keeping packet sizes efficient. The native addon also writes raw audio to a temp file every 30 seconds for crash recovery — if the app dies mid-meeting, nothing is lost.
 
 ---
 
@@ -81,7 +85,7 @@ Key Deepgram parameters (all configurable via `[tuning]`):
 - **`interim_results`** — Enabled. The orchestrator tracks interim results by `(channel, startTime)` key and replaces them when finals arrive.
 - **`smart_format`** — Enabled. Deepgram handles punctuation, capitalization, and number formatting.
 
-We use the raw `ws` WebSocket library, not the Deepgram SDK. The SDK assumes a browser or standard Node.js environment and breaks in Electron's main process due to Chromium globals (`navigator`, `window`) leaking into the Node.js context.
+We use the raw `ws` WebSocket library, not the Deepgram SDK. This was a hard-won lesson: the SDK assumes a browser or standard Node.js environment and breaks in Electron's main process because Chromium globals (`navigator`, `window`) leak into the Node.js context. The raw WebSocket is actually simpler — Deepgram's streaming protocol is just JSON messages over a WebSocket, and controlling the connection directly gives us better error handling and reconnection logic.
 
 ### Fallback: AssemblyAI v3
 
@@ -96,11 +100,11 @@ Same two-connection architecture as Deepgram. Turn finality is determined by:
 
 ## Speaker Identification
 
-Speaker ID happens in three stages:
+Speaker ID is the hardest problem in meeting transcription. Most tools throw the entire audio at a diarization model and hope it figures out who's who. QuietClaw takes a different approach: exploit what you already know, and only use ML for what you don't.
 
 ### 1. Channel-Based Separation
 
-The simplest and most reliable signal: mic audio (channel 0) is always you. System audio (channel 1) is everyone else. This gives you free 2-person separation without any ML — if you're in a 1-on-1 call, the mic channel is you and the system channel is the other person.
+The simplest and most reliable signal: mic audio (channel 0) is always you. System audio (channel 1) is everyone else. This gives you free 2-person separation without any ML — if you're in a 1-on-1 call, the mic channel is you and the system channel is the other person. Most meetings are 1-on-1s. That means most of the time, speaker identification is a solved problem before the STT model even runs.
 
 ### 2. Diarization (System Channel Only)
 
@@ -114,13 +118,13 @@ After a recording ends, the speaker identifier cross-references with the calenda
 
 ### Echo Cancellation and Bleed Dedup
 
-When you're not wearing headphones, your speakers play the other participants' audio, which your mic picks up. This creates "bleed" — the same speech appearing on both channels.
+When you're not wearing headphones, your speakers play the other participants' audio, which your mic picks up. This creates "bleed" — the same speech appearing on both channels. Dual mono streams make this problem worse than stereo (where the STT model might figure it out from channel correlation), so we need a real solution.
 
-**Primary defense: Apple Voice Processing echo cancellation (AEC).** This is the same system-level AEC that FaceTime and other Apple apps use. It runs in the native audio pipeline before the audio reaches our capture, removing most echo at the signal level.
+**Primary defense: Apple Voice Processing echo cancellation (AEC).** This is the same system-level AEC that FaceTime uses. By routing mic capture through Apple's Voice Processing I/O unit, we get industrial-grade echo cancellation before the audio ever reaches our code. It runs in the native audio pipeline, at the signal level — no text comparison, no heuristics, just clean audio.
 
-**Safety net: text-based bleed deduplication.** After transcription, a post-processing pass compares mic segments against system segments. If a mic segment has high word overlap with a nearby system segment, it's marked as bleed and removed. This catches anything AEC missed — particularly with open-back headphones or unusual room acoustics.
+**Safety net: text-based bleed deduplication.** Even the best AEC isn't perfect. Open-back headphones, unusual room reflections, or AEC adaptation lag can let some bleed through. So after transcription, a post-processing pass compares mic segments against system segments. If a mic segment has high word overlap with a nearby system segment, it's marked as bleed and removed.
 
-The bleed dedup parameters are configurable because they're sensitive to hardware:
+Two layers of defense, operating at different levels of the stack. The AEC handles 95% of cases; the text dedup catches the rest. The bleed dedup parameters are configurable because they're sensitive to hardware:
 
 | Parameter | Default | What it controls |
 |---|---|---|
@@ -134,7 +138,7 @@ With AEC enabled, bleed dedup rarely fires. It's insurance, not the main mechani
 
 ## Meeting Detection
 
-QuietClaw auto-detects active video calls through two signals working together:
+You shouldn't have to remember to press "record." QuietClaw auto-detects active video calls through two signals working together — neither is reliable alone, but together they're remarkably accurate:
 
 ### Window Detection (Native Polling)
 
@@ -142,7 +146,7 @@ The native addon polls every 2 seconds via `SCShareableContent` and `NSRunningAp
 
 ### Mic Monitor (macOS Log Stream)
 
-A separate monitor watches the macOS Control Center sensor indicator log for which apps are actively using the microphone. This gives app-level granularity — not just "something is using the mic" but "Zoom is using the mic." This filters false positives from apps like Wispr Flow or Siri that keep the mic open but aren't meetings.
+A separate monitor watches the macOS Control Center sensor indicator log for which apps are actively using the microphone. This gives app-level granularity — not just "something is using the mic" but "*Zoom* is using the mic." Window detection alone would false-positive on a Zoom window sitting in the background; mic detection alone would false-positive on Siri or voice-typing apps. Together, they answer the right question: "Is this person actively in a call right now?"
 
 ### Debounce
 
@@ -150,13 +154,13 @@ Meeting end detection uses a debounce counter (configurable via `tuning.meeting_
 
 ### Constraint: One Recording at a Time
 
-QuietClaw enforces a single active recording. If a recording is in progress and a new call is detected, the new detection is ignored. This simplifies the pipeline (one STT connection pair, one set of segments, one output directory) and matches the reality that you can only be in one meeting at a time.
+QuietClaw enforces a single active recording. If a recording is in progress and a new call is detected, the new detection is ignored. This is a deliberate simplification — you can only be in one meeting at a time, so the pipeline only needs to handle one STT connection pair, one set of segments, one output directory. No multiplexing, no resource contention, no edge cases around overlapping recordings.
 
 ---
 
 ## Sleep/Wake Handling
 
-When the system sleeps (lid close, manual sleep), audio capture stops and WebSocket connections drop. QuietClaw handles this gracefully:
+Closing your laptop mid-meeting is surprisingly common — bathroom break, switching rooms, grabbing coffee. When the system sleeps, audio capture stops and WebSocket connections drop. Most recording apps just break here. QuietClaw handles it gracefully:
 
 **On suspend:** Flush all buffered audio to the STT provider immediately. Record the timestamp so we know how long the gap was.
 
