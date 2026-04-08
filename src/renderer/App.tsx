@@ -104,7 +104,7 @@ export default function App() {
   return (
     <ToastProvider>
     <div className="min-h-screen bg-surface text-text-primary flex flex-col">
-      <header className="flex items-center justify-between px-6 py-3 border-b border-border/30 sticky top-0 z-10 bg-surface">
+      <header className="flex items-center justify-between px-6 py-3 border-b border-border/30 sticky top-0 z-10 bg-surface/80 backdrop-blur-xl">
         <div className="flex items-center gap-2.5">
           <ClawIcon className="w-5 h-5 text-accent" />
           <h1 className="text-base font-semibold tracking-tight">QuietClaw</h1>

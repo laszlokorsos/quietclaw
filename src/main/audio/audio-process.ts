@@ -21,12 +21,11 @@
 const nativeAddonPath = process.argv[2]
 
 if (!nativeAddonPath) {
-  console.error('[AudioProcess] No native addon path provided')
+  process.parentPort.postMessage({ event: 'error', message: 'No native addon path provided' })
   process.exit(1)
 }
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const native = require(nativeAddonPath) as {
+interface NativeAddon {
   startCapture(
     options: {
       sampleRate: number
@@ -42,7 +41,16 @@ const native = require(nativeAddonPath) as {
   flushTempFile(): void
 }
 
-let audioPort: MessagePort | null = null
+let native: NativeAddon
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  native = require(nativeAddonPath) as NativeAddon
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err)
+  process.parentPort.postMessage({ event: 'error', message: `Failed to load native addon: ${msg}` })
+  process.exit(1)
+}
+
 let capturing = false
 
 // Listen for control messages from the main process
@@ -50,16 +58,6 @@ process.parentPort.on('message', (msg) => {
   const data = msg.data
 
   if (data.event === 'start-capture') {
-    // The MessagePort is transferred alongside the message
-    if (msg.ports?.[0]) {
-      audioPort = msg.ports[0]
-    }
-
-    if (!audioPort) {
-      process.parentPort.postMessage({ event: 'error', message: 'No audio port provided' })
-      return
-    }
-
     try {
       native.startCapture(
         {
@@ -70,9 +68,9 @@ process.parentPort.on('message', (msg) => {
           disableEchoCancellationOnHeadphones: data.options.disableEchoCancellationOnHeadphones
         },
         (audioData) => {
-          if (!audioPort || !capturing) return
+          if (!capturing) return
 
-          // Transfer the Float32Array's underlying ArrayBuffer for zero-copy
+          // Send audio data back through parentPort
           const buffer = audioData.buffer
           const arrayBuffer = buffer.buffer.slice(
             buffer.byteOffset,
@@ -80,13 +78,13 @@ process.parentPort.on('message', (msg) => {
           )
           const transferred = new Float32Array(arrayBuffer)
 
-          audioPort.postMessage(
+          process.parentPort.postMessage(
             {
+              event: 'audio-data',
               source: audioData.source,
               buffer: transferred,
               timestamp: audioData.timestamp
-            },
-            [transferred.buffer]
+            }
           )
         }
       )

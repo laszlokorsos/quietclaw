@@ -170,3 +170,12 @@ button, a, input {
 .animate-pulse-subtle {
   animation: pulse-subtle 2s ease-in-out infinite;
 }
+
+/* Breathing dot — scale + soft glow, no opacity change */
+@keyframes breathe {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 currentColor; }
+  50% { transform: scale(1.3); box-shadow: 0 0 4px 1px currentColor; }
+}
+.animate-breathe {
+  animation: breathe 2.5s ease-in-out infinite;
+}

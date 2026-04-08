@@ -166,6 +166,17 @@ export class PipelineOrchestrator {
 
     log.info(`[Pipeline] Starting session ${this.sessionId}`)
 
+    // Check Screen Recording permission before attempting capture
+    const hasPermission = await this.audioCapture.hasPermission()
+    if (!hasPermission) {
+      const err = new Error(
+        'Screen Recording permission not granted. Open System Settings → Privacy & Security → Screen Recording and enable QuietClaw.'
+      )
+      log.error('[Pipeline]', err.message)
+      this.setState('idle')
+      throw err
+    }
+
     // Sync calendar and try to match current recording to an event
     let attendees: CalendarAttendee[] = []
     try {

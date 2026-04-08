@@ -303,7 +303,7 @@ function UpcomingSection({
     <div className="mb-8">
       {upcoming.length > 0 && (
         <>
-          <h3 className="text-xs font-medium text-text-secondary mb-4">
+          <h3 className="text-xs font-medium text-text-muted mb-3">
             Upcoming today
           </h3>
           {loadingCalendar ? (
@@ -563,7 +563,7 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
             if (e.key === 'Enter') fireSearchNow()
             if (e.key === 'Escape') { setSearch(''); searchInputRef.current?.blur() }
           }}
-          className={`w-full pl-9 ${search ? 'pr-9' : 'pr-4'} py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors`}
+          className={`w-full pl-9 ${search ? 'pr-9' : 'pr-4'} py-2.5 bg-surface-secondary border border-border/50 rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent focus:ring-2 focus:ring-accent/10 shadow-inner shadow-black/[0.03] transition-all`}
         />
         {search && (
           <button
@@ -602,11 +602,11 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
         </div>
       ) : meetings.length > 0 ? (
         Object.entries(grouped).map(([date, items]) => (
-          <div key={date} className="mb-4">
-            <h3 className="text-xs font-medium text-text-secondary mb-1.5">
+          <div key={date} className="mb-5 first:pt-0 [&:not(:first-child)]:pt-4 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-border/30">
+            <h3 className="text-xs font-medium text-text-muted mb-2">
               {formatDate(items[0].startTime)}
             </h3>
-            <div className="space-y-0">
+            <div className="space-y-1">
               {items.map((m) => {
                 const isUnscheduled = m.title.startsWith('Unscheduled call')
                 const displayTitle = isUnscheduled ? 'Unscheduled meeting' : m.title
@@ -614,7 +614,7 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
                   <button
                     key={m.id}
                     onClick={() => onSelect(m.id)}
-                    className="w-full text-left px-4 py-2 rounded-xl hover:bg-surface-secondary cursor-pointer transition-colors group"
+                    className="w-full text-left px-4 py-3 rounded-xl bg-surface-elevated/50 border border-border/20 hover:bg-surface-elevated hover:border-border/40 hover:shadow-sm cursor-pointer transition-all duration-150 group"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -650,10 +650,10 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {m.actionCount > 0 && (
-                          <span className="text-xs text-success font-medium">{m.actionCount} action{m.actionCount !== 1 ? 's' : ''}</span>
+                          <span className="text-xs text-success font-medium bg-success/10 px-2 py-0.5 rounded-full">{m.actionCount} action{m.actionCount !== 1 ? 's' : ''}</span>
                         )}
                         {!m.summarized && (
-                          <span className="text-xs text-text-muted">Not summarized</span>
+                          <span className="text-xs text-text-muted bg-surface-secondary px-2 py-0.5 rounded-full">Not summarized</span>
                         )}
                         <svg className="w-4 h-4 text-text-muted/0 group-hover:text-text-muted transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="9 18 15 12 9 6" />
@@ -683,7 +683,7 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
           </div>
         ) : (
           <div className="text-center py-16">
-            <svg className="w-8 h-8 text-text-muted/40 mx-auto mb-4" viewBox="0 0 32 32" fill="currentColor">
+            <svg className="w-10 h-10 text-text-muted/50 mx-auto mb-4" viewBox="0 0 32 32" fill="currentColor">
               <path d="M 26 14 C 23.5 10, 19 7, 14 5.5 C 9 4.5, 5 7, 4 12 C 3 17, 5 22, 9 24 L 9 18 C 9 14, 11.5 11, 15 10.5 C 18 10, 22 11, 26 14 Z" />
               <path d="M 26 15 C 22 17.5, 18 18.5, 15 18 C 11.5 17.5, 9 19.5, 9 22 L 9 24 C 13 26.5, 18 27.5, 22 26.5 C 26 25.5, 28.5 22, 28 18.5 C 28 16.5, 27 15, 26 15 Z" />
             </svg>

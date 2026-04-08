@@ -14,12 +14,12 @@ If you're looking for how to use QuietClaw, see [README.md](README.md). If you'r
 ┌─────────────────────────────────────────────────────────────────┐
 │  Main Process                                                   │
 │                                                                 │
-│  ┌──────────────┐    MessagePort     ┌───────────────────────┐  │
+│  ┌──────────────┐    parentPort      ┌───────────────────────┐  │
 │  │ capture-macos │◄═════════════════►│  Utility Process      │  │
-│  │ (proxy)       │  zero-copy audio  │  (audio-process.ts)   │  │
+│  │ (proxy)       │  audio + control  │  (audio-process.ts)   │  │
 │  │               │                   │  ┌─────────────────┐  │  │
 │  │  postMessage  │   Float32Array    │  │  Native Addon   │  │  │
-│  │  control msgs │   transfer        │  │  (audio_tap)    │  │  │
+│  │               │   chunks          │  │  (audio_tap)    │  │  │
 │  └──────┬───────┘                    │  └─────────────────┘  │  │
 │         │                            └───────────────────────┘  │
 │         │ AudioChunk                                            │
@@ -39,9 +39,7 @@ If you're looking for how to use QuietClaw, see [README.md](README.md). If you'r
 
 Audio capture runs in a separate Electron utility process (`utilityProcess.fork()`). This was the key insight that unlocked reliable recording: Electron's main process does too many things — UI rendering, SQLite writes, calendar syncs, summarization API calls — and any of them can block the event loop long enough to cause audio dropouts. Moving audio capture into its own process means a 200ms SQLite write or a slow Claude API response never touches the audio path. Zero interference, zero dropouts.
 
-The main process spawns the utility process and creates a `MessageChannelMain`. Port 1 is transferred to the utility process for sending audio data; port 2 stays in the main process for receiving it. Audio chunks are `Float32Array` instances sent via `postMessage` with ArrayBuffer transfer — zero-copy, no serialization overhead.
-
-Control messages (`start-capture`, `stop-capture`, `flush-temp-file`) go through the standard `parentPort` channel. Meeting detection stays in the main process because it's low-frequency polling (every 2 seconds) that doesn't benefit from isolation.
+The main process spawns the utility process and communicates via `parentPort.postMessage`. Control messages (`start-capture`, `stop-capture`, `flush-temp-file`) and audio data flow through the same channel. Audio chunks are `Float32Array` instances sent as structured-clone messages — at ~19KB per chunk every 200ms, the serialization overhead is negligible. Meeting detection stays in the main process because it's low-frequency polling (every 2 seconds) that doesn't benefit from isolation.
 
 ### Two Mono Streams, Not Stereo
 

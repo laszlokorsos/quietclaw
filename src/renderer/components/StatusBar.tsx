@@ -56,6 +56,9 @@ export default function StatusBar({
   }
 
   return (
-    <span className="text-xs text-text-muted">Listening for meetings</span>
+    <span className="flex items-center gap-1.5 text-xs text-text-muted">
+      <span className="w-1.5 h-1.5 rounded-full bg-text-muted/40 text-text-muted/20 animate-breathe" />
+      Listening for meetings
+    </span>
   )
 }

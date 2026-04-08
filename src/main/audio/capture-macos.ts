@@ -15,8 +15,8 @@
 import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { app, utilityProcess, MessageChannelMain } from 'electron'
-import type { UtilityProcess, MessagePortMain } from 'electron'
+import { app, utilityProcess } from 'electron'
+import type { UtilityProcess } from 'electron'
 import log from 'electron-log/main'
 import type { AudioCaptureProvider, AudioChunk, AudioDataCallback, CaptureOptions } from './types'
 
@@ -43,14 +43,16 @@ function resolveNativeAddonPath(): string {
     // In production, electron-builder puts .node files in app.asar.unpacked
     return path.join(app.getAppPath() + '.unpacked', 'native/build/Release/audio_tap.node')
   }
-  // In development, built by node-gyp
-  return path.join(__dirname, '../../native/build/Release/audio_tap.node')
+  // In development, app.getAppPath() is the project root — reliable regardless
+  // of which chunk Vite puts this code in
+  return path.join(app.getAppPath(), 'native/build/Release/audio_tap.node')
 }
 
 /** Resolve the path to the compiled audio-process.js utility process script */
 function resolveAudioProcessPath(): string {
-  // electron-vite compiles audio-process.ts alongside the main process entry
-  return path.join(__dirname, 'audio-process.js')
+  // app.getAppPath() → project root (dev) or .asar path (production)
+  // audio-process.js is always at out/main/audio-process.js relative to that
+  return path.join(app.getAppPath(), 'out/main/audio-process.js')
 }
 
 function loadNativeAddon(): NativeAudioTapMain {
@@ -77,8 +79,6 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
 
   /** Utility process running audio capture */
   private audioProcess: UtilityProcess | null = null
-  /** MessagePort for receiving audio data from utility process */
-  private audioPort: MessagePortMain | null = null
 
   constructor() {
     this.native = loadNativeAddon()
@@ -121,22 +121,26 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
       serviceName: 'Audio Process'
     })
 
-    // Create a MessageChannel for high-bandwidth audio data transfer
-    const { port1, port2 } = new MessageChannelMain()
-
     // Wait for the utility process to signal it started capture
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Audio utility process failed to start capture within 10s'))
       }, 10_000)
 
-      this.audioProcess!.on('message', (msg: { event: string; message?: string }) => {
+      this.audioProcess!.on('message', (msg: { event: string; message?: string; source?: string; buffer?: Float32Array; timestamp?: number }) => {
         if (msg.event === 'started') {
           clearTimeout(timeout)
           resolve()
         } else if (msg.event === 'error') {
           clearTimeout(timeout)
           reject(new Error(msg.message ?? 'Unknown audio process error'))
+        } else if (msg.event === 'audio-data' && this.callback) {
+          const chunk: AudioChunk = {
+            source: msg.source as 'system' | 'microphone',
+            buffer: msg.buffer!,
+            timestamp: msg.timestamp!
+          }
+          this.callback(chunk)
         }
       })
 
@@ -146,36 +150,18 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
         reject(new Error(`Audio utility process exited during startup (code ${code})`))
       })
 
-      // Send start-capture command with the MessagePort
-      this.audioProcess!.postMessage(
-        {
-          event: 'start-capture',
-          options: {
-            sampleRate: options.sampleRate,
-            tempFilePath: this.tempFilePath,
-            enableEchoCancellation: options.enableEchoCancellation ?? true,
-            enableAGC: options.enableAGC ?? true,
-            disableEchoCancellationOnHeadphones: options.disableEchoCancellationOnHeadphones ?? true
-          }
-        },
-        [port1]
-      )
-    })
-
-    // Listen for audio data on port2 (main process side)
-    this.audioPort = port2
-    port2.on('message', (event: { data: { source: string; buffer: Float32Array; timestamp: number } }) => {
-      if (this.callback) {
-        const data = event.data
-        const chunk: AudioChunk = {
-          source: data.source as 'system' | 'microphone',
-          buffer: data.buffer,
-          timestamp: data.timestamp
+      // Send start-capture command
+      this.audioProcess!.postMessage({
+        event: 'start-capture',
+        options: {
+          sampleRate: options.sampleRate,
+          tempFilePath: this.tempFilePath,
+          enableEchoCancellation: options.enableEchoCancellation ?? true,
+          enableAGC: options.enableAGC ?? true,
+          disableEchoCancellationOnHeadphones: options.disableEchoCancellationOnHeadphones ?? true
         }
-        this.callback(chunk)
-      }
+      })
     })
-    port2.start()
 
     // Handle unexpected utility process exit during recording
     this.audioProcess.on('exit', (code) => {
@@ -183,7 +169,6 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
         log.error(`[AudioCapture] Utility process crashed (code ${code}) during recording`)
         this.capturing = false
         this.stopFlushInterval()
-        this.audioPort = null
         this.audioProcess = null
       }
     })
@@ -223,12 +208,6 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
       // Kill the utility process
       this.audioProcess.kill()
       this.audioProcess = null
-    }
-
-    // Close the audio port
-    if (this.audioPort) {
-      this.audioPort.close()
-      this.audioPort = null
     }
 
     this.capturing = false
