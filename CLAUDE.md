@@ -4,7 +4,7 @@
 
 ## What is this project?
 
-QuietClaw is a macOS Electron desktop app that silently records video calls (Google Meet, Zoom, Teams), transcribes them with speaker attribution via Deepgram, optionally summarizes them via Claude, and exposes structured output via a local API and filesystem. It's standalone — no dependency on any specific agent platform. Works with Claude Code, Claude Desktop, OpenClaw, n8n, or anything that reads JSON.
+QuietClaw is a macOS Electron desktop app that silently records video calls (Google Meet, Zoom, Teams), transcribes them with speaker attribution via Deepgram, optionally summarizes them via Claude, and writes structured output as plain files on disk. It's standalone — no dependency on any specific agent platform. Works with Claude Code, Claude Desktop, OpenClaw, n8n, or anything that reads JSON files.
 
 ## Tech Stack
 
@@ -23,6 +23,7 @@ QuietClaw is a macOS Electron desktop app that silently records video calls (Goo
 ```
 quietclaw/
 ├── CLAUDE.md                          # This file
+├── ARCHITECTURE.md                    # Deep technical architecture docs
 ├── LICENSE                            # Apache 2.0
 ├── README.md                          # User-facing docs
 ├── CONTRIBUTING.md                    # Contributor guide
@@ -51,17 +52,21 @@ quietclaw/
 │   │   ├── index.ts                   # App entry point
 │   │   ├── tray.ts                    # System tray / menu bar
 │   │   ├── ipc.ts                     # IPC handlers (main ↔ renderer)
+│   │   ├── ipc-helpers.ts             # IPC utility functions
 │   │   ├── logger.ts                  # Logging setup
 │   │   ├── dialogs.ts                 # Native dialog helpers
 │   │   ├── audio/
 │   │   │   ├── types.ts               # AudioCaptureProvider interface
 │   │   │   ├── capture.ts             # Factory: picks provider for current OS
 │   │   │   ├── capture-macos.ts       # macOS implementation (wraps native addon)
+│   │   │   ├── audio-process.ts       # Utility process entry point (audio isolation)
+│   │   │   ├── mic-monitor.ts         # macOS mic activity monitor (log stream)
 │   │   │   └── auto-record.ts         # Auto-detection of active calls
 │   │   ├── calendar/
 │   │   │   ├── google.ts              # Google Calendar OAuth + event fetching
+│   │   │   ├── google-helpers.ts      # Calendar event conversion utilities
 │   │   │   ├── accounts.ts            # Account management (add/remove/list)
-│   │   │   ├── sync.ts                # Periodic event sync + dedup across accounts
+│   │   │   ├── sync.ts               # Periodic event sync + dedup across accounts
 │   │   │   └── matcher.ts             # Match active call to calendar event
 │   │   ├── pipeline/
 │   │   │   ├── orchestrator.ts        # End-to-end recording → transcription → output
@@ -70,7 +75,8 @@ quietclaw/
 │   │   │   ├── utils.ts               # Pipeline utilities
 │   │   │   ├── stt/
 │   │   │   │   ├── provider.ts        # STT provider interface
-│   │   │   │   └── deepgram.ts        # Deepgram real-time streaming
+│   │   │   │   ├── deepgram.ts        # Deepgram real-time streaming
+│   │   │   │   └── assemblyai.ts      # AssemblyAI v3 streaming (fallback)
 │   │   │   └── summarizer/
 │   │   │       ├── provider.ts        # Summarization provider interface
 │   │   │       └── anthropic.ts       # Claude API
@@ -203,7 +209,7 @@ Call ends
   → Transcript finalized with speaker attribution
   → If summarization enabled: Claude extracts summary + action items
   → Files written to ~/.quietclaw/meetings/YYYY-MM-DD/{slug}/
-  → Indexed in SQLite, available via REST API
+  → Indexed in SQLite for search
 ```
 
 ### Filesystem Output

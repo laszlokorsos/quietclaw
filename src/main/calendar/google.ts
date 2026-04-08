@@ -3,7 +3,7 @@
  *
  * Uses googleapis for OAuth 2.0 and Calendar API access.
  * OAuth flow uses a loopback redirect (http://127.0.0.1:PORT/callback)
- * with an ephemeral Express server to capture the auth code.
+ * with an ephemeral HTTP server to capture the auth code.
  *
  * Scope: calendar.readonly (never writes to user's calendar)
  *
@@ -14,8 +14,7 @@
 import { calendar } from '@googleapis/calendar'
 import { oauth2 } from '@googleapis/oauth2'
 import { OAuth2Client } from 'google-auth-library'
-import express from 'express'
-import type { Server } from 'node:http'
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
 import { shell } from 'electron'
 import log from 'electron-log/main'
 import {
@@ -129,10 +128,49 @@ function captureAuthCode(authUrl: string): Promise<string> {
   }
 
   return new Promise((resolve, reject) => {
-    const expressApp = express()
-    let server: Server
-
     activeOAuthReject = reject
+
+    function sendHtml(res: ServerResponse, html: string) {
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end(html)
+    }
+
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = new URL(req.url ?? '/', `http://127.0.0.1:${CALLBACK_PORT}`)
+      if (url.pathname !== '/callback') {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+
+      const code = url.searchParams.get('code')
+      const error = url.searchParams.get('error')
+
+      if (error) {
+        sendHtml(res, '<html><body><h2>Authorization denied</h2><p>You can close this window.</p></body></html>')
+        cleanup()
+        reject(new Error(`OAuth error: ${error}`))
+        return
+      }
+
+      if (!code) {
+        sendHtml(res, '<html><body><h2>Error</h2><p>No authorization code received.</p></body></html>')
+        cleanup()
+        reject(new Error('No authorization code in callback'))
+        return
+      }
+
+      sendHtml(
+        res,
+        '<html><body style="font-family:system-ui;text-align:center;padding:60px">' +
+          '<h2>Calendar connected!</h2>' +
+          '<p>You can close this window and return to QuietClaw.</p>' +
+          '</body></html>'
+      )
+
+      cleanup()
+      resolve(code)
+    })
 
     function cleanup() {
       clearTimeout(timeout)
@@ -148,36 +186,7 @@ function captureAuthCode(authUrl: string): Promise<string> {
       reject(new Error('OAuth authorization timed out (120s)'))
     }, 120000)
 
-    expressApp.get('/callback', (req, res) => {
-      const code = req.query.code as string
-      const error = req.query.error as string
-
-      if (error) {
-        res.send('<html><body><h2>Authorization denied</h2><p>You can close this window.</p></body></html>')
-        cleanup()
-        reject(new Error(`OAuth error: ${error}`))
-        return
-      }
-
-      if (!code) {
-        res.send('<html><body><h2>Error</h2><p>No authorization code received.</p></body></html>')
-        cleanup()
-        reject(new Error('No authorization code in callback'))
-        return
-      }
-
-      res.send(
-        '<html><body style="font-family:system-ui;text-align:center;padding:60px">' +
-          '<h2>Calendar connected!</h2>' +
-          '<p>You can close this window and return to QuietClaw.</p>' +
-          '</body></html>'
-      )
-
-      cleanup()
-      resolve(code)
-    })
-
-    server = expressApp.listen(CALLBACK_PORT, '127.0.0.1', () => {
+    server.listen(CALLBACK_PORT, '127.0.0.1', () => {
       log.info(`[Calendar] OAuth callback server listening on port ${CALLBACK_PORT}`)
       shell.openExternal(authUrl)
     })
