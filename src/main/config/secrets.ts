@@ -9,7 +9,6 @@
  *   quietclaw:anthropic:api_key
  *   quietclaw:openai:api_key
  *   quietclaw:calendar:{email}:refresh_token
- *   quietclaw:api:auth_token
  */
 
 import { safeStorage } from 'electron'
@@ -147,13 +146,3 @@ export function setCalendarRefreshToken(email: string, token: string): void {
   setSecret(`quietclaw:calendar:${email}:refresh_token`, token)
 }
 
-/** Get or create the API auth token for the local REST API */
-export function getApiAuthToken(): string {
-  let token = getSecret('quietclaw:api:auth_token')
-  if (!token) {
-    token = randomBytes(32).toString('hex')
-    setSecret('quietclaw:api:auth_token', token)
-    log.info('[Secrets] Generated new API auth token')
-  }
-  return token
-}

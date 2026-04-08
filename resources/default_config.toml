@@ -64,10 +64,6 @@ extract_topics = true
 endpoint = "http://localhost:11434"
 model = "llama3.1"
 
-[api]
-enabled = true
-port = 19832
-
 [notifications]
 on_meeting_processed = true
 desktop_notifications = true

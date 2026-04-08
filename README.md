@@ -19,7 +19,7 @@ Think of it as [Granola](https://granola.ai) but open-source and built for agent
 | | |
 |---|---|
 | **Structured JSON output** | Not just a pretty transcript UI — machine-readable data agents can consume |
-| **Local REST API** | Claude Code, OpenClaw, n8n, or anything else can query meetings programmatically |
+| **Plain files on disk** | Claude Code, OpenClaw, or any agent reads `~/.quietclaw/meetings/` directly — no API, no setup |
 | **Open source** | Apache 2.0, no vendor lock-in, extend it however you want |
 | **No meeting bot** | Captures audio directly via macOS Core Audio Taps, invisible to other participants |
 | **Real-time transcription** | Deepgram gives you streaming STT with built-in speaker diarization — bring your own API key, pay pennies per minute |
@@ -37,8 +37,7 @@ Call ends
   → Transcript assembled with speaker attribution
   → Optional: Claude summarization → summary + action items
   → Files written to ~/.quietclaw/meetings/YYYY-MM-DD/{slug}/
-  → Indexed in SQLite, available via REST API
-  → Your agents can now act on it
+  → Indexed in SQLite, your agents can now act on it
 ```
 
 ## Quick Start
@@ -80,11 +79,7 @@ Click **Settings > Google Calendar > Connect Account** to add one or more Google
 
 ## Agent Integration
 
-QuietClaw writes plain files and runs a local API — no MCP server or custom integration needed. Claude Code, OpenClaw, n8n, or any agent that can read files or make HTTP requests can consume meeting data directly.
-
-### Read the files
-
-The simplest approach. Meeting data lives at `~/.quietclaw/meetings/` in a predictable structure:
+QuietClaw writes plain files to disk — no API server, no MCP, no integration layer. Claude Code, OpenClaw, or any agent that can read files consumes meeting data directly.
 
 ```bash
 # Today's meetings
@@ -102,47 +97,6 @@ cat ~/.quietclaw/meetings/2026-04-05/index.md
 ```
 
 Each meeting directory contains `metadata.json`, `transcript.json`, and optionally `summary.json` and `actions.json`. The Markdown files are the same data in human/LLM-readable format with YAML frontmatter.
-
-### Use the API
-
-The local REST API is useful for search, triggering summarization, and updating action item status:
-
-```bash
-# Check if QuietClaw is running
-curl http://localhost:19832/api/v1/health
-
-# Today's meetings
-curl http://localhost:19832/api/v1/meetings/today | jq '.meetings[].title'
-
-# Full-text search across all meetings
-curl 'http://localhost:19832/api/v1/meetings/search?q=pricing' | jq '.'
-
-# Trigger summarization on a transcript that hasn't been summarized yet
-curl -X POST http://localhost:19832/api/v1/meetings/{id}/summarize
-```
-
-### Why not MCP?
-
-The data is already in plain JSON and Markdown files on disk, and there's a REST API for anything that needs querying. An MCP server would be a third interface to the same data, adding context overhead on every agent turn for tool definitions that duplicate what `cat` and `curl` already do.
-
-## API Reference
-
-The local API runs on `http://localhost:19832` when QuietClaw is running.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/health` | Health check |
-| `GET` | `/api/v1/meetings` | List meetings (paginated: `?limit=50&offset=0`) |
-| `GET` | `/api/v1/meetings/today` | Today's meetings |
-| `GET` | `/api/v1/meetings/search?q=...` | Full-text search |
-| `GET` | `/api/v1/meetings/:id` | Full meeting data |
-| `GET` | `/api/v1/meetings/:id/transcript` | Transcript only |
-| `GET` | `/api/v1/meetings/:id/summary` | Summary (if available) |
-| `GET` | `/api/v1/meetings/:id/actions` | Action items |
-| `POST` | `/api/v1/meetings/:id/summarize` | Trigger summarization |
-| `POST` | `/api/v1/meetings/:id/actions/:aid` | Update action status |
-| `DELETE` | `/api/v1/meetings/:id` | Delete meeting and files |
-| `GET` | `/api/v1/openapi.json` | OpenAPI 3.0 specification |
 
 ## Output Format
 
@@ -175,7 +129,6 @@ All markdown files include YAML frontmatter with structured metadata. Speaker na
 - **Google Calendar integration** — multi-account OAuth, automatic event matching, attendee extraction
 - **Optional AI summarization** — executive summary, topics, decisions, action items
 - **Structured output** — JSON + Markdown files per meeting, indexed in SQLite
-- **Local REST API** — query meetings, transcripts, summaries from any tool
 - **Crash recovery** — orphaned recordings automatically recovered on next launch
 - **Platform join buttons** — upcoming meetings show clickable Google Meet / Zoom / Teams buttons
 - **Obsidian-compatible** — YAML frontmatter, wikilinks, daily index files
@@ -201,25 +154,24 @@ enabled = true                        # Set false to skip summarization
 provider = "anthropic"
 model = "claude-haiku-4-5-20251001"
 
-[api]
-port = 19832                          # Local REST API port
 ```
 
 See [`resources/default_config.toml`](resources/default_config.toml) for all options.
 
 ## Roadmap
 
-### Phase 2
-- **Contacts & speaker consistency** — autocomplete from past names, person card, consistent wikilinks
-- **Additional STT providers** — OpenAI Whisper API, local whisper.cpp (AssemblyAI v3 already shipped)
-- **Additional summarizers** — OpenAI GPT, Ollama (local)
-- **Real-time transcript display** during calls
-- **Windows support** — WASAPI loopback capture (architecture is already abstracted)
+### Phase 2: People & Intelligence
+- **Contacts database** — persistent people across meetings, email-to-name mapping, so agents can query "all meetings with Alice"
+- **Speaker consistency** — autocomplete from past names, stable wikilinks across meetings
+- **Cross-meeting queries** — "all meetings with person X", "open actions for team Y"
+- **Voice fingerprint learning** — automatic speaker recognition that improves from manual corrections
+- **Meeting type templates** — different summarization prompts for standups, 1:1s, all-hands
 
-### Phase 3
-- **Speaker recognition** — automatic identification that learns from manual mappings
-- **Cross-meeting intelligence** — "What has X discussed across the last 10 meetings?"
-- **Plugin system** for custom post-processing
+### Phase 3: Platform
+- **Microsoft/Outlook calendar** — enterprise calendar support via Graph API
+- **Windows support** — WASAPI loopback capture (architecture is already abstracted behind `AudioCaptureProvider`)
+- **Webhooks** — push meeting data to n8n, Zapier, or custom endpoints when processing completes
+- **Multi-language** — transcription and summarization in non-English languages
 
 ## Development
 
@@ -243,7 +195,6 @@ See [`CLAUDE.md`](CLAUDE.md) for the full development guide — architecture, co
 | Calendar | Google Calendar API (OAuth) |
 | Database | better-sqlite3 |
 | UI | React 19 + Tailwind CSS |
-| API | Express.js (embedded in main process) |
 | Config | TOML (`~/.quietclaw/config.toml`) |
 | Secrets | Electron safeStorage (OS-level encryption) |
 

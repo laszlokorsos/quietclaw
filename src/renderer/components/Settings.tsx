@@ -452,7 +452,6 @@ export default function Settings({
             >
               Open meeting data
             </button>
-            {' '}&middot; API: localhost:19832
           </p>
         </div>
       </section>

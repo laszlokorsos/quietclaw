@@ -217,7 +217,7 @@ After a recording stops, several post-processing steps run in sequence:
 7. **Transcript assembly** — Segments are written to the final transcript structure.
 8. **Optional summarization** — If enabled, the transcript is sent to Claude for summary extraction.
 9. **File output** — JSON and Markdown files written atomically to `~/.quietclaw/meetings/YYYY-MM-DD/{slug}/`.
-10. **Database indexing** — Meeting metadata indexed in SQLite for API queries.
+10. **Database indexing** — Meeting metadata indexed in SQLite for search.
 
 ---
 

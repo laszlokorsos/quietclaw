@@ -10,7 +10,6 @@ import { Tray, Menu, BrowserWindow, nativeImage, app } from 'electron'
 import path from 'node:path'
 import log from 'electron-log/main'
 import { hasSecret } from './config/secrets'
-import { notifyRecordingStarted, notifyRecordingStopped, notifyMeetingProcessed } from './api/ws'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
 
 let tray: Tray | null = null
@@ -84,7 +83,6 @@ export function setupTray(
                 `[Tray] Recording stopped — ${result.transcript.segments.length} segments, ` +
                   `${result.metadata.duration.toFixed(1)}s`
               )
-              notifyRecordingStopped(result.metadata.id)
             } catch (err) {
               log.error('[Tray] Failed to stop recording:', err)
             }
@@ -92,7 +90,6 @@ export function setupTray(
             try {
               await orchestrator.startRecording('Me')
               log.info('[Tray] Recording started')
-              notifyRecordingStarted(orchestrator.getSessionId() ?? '')
             } catch (err) {
               log.error('[Tray] Failed to start recording:', err)
             }
@@ -160,12 +157,6 @@ export function setupTray(
         id: meeting.metadata.id,
         title: meeting.metadata.title
       })
-      notifyMeetingProcessed(
-        meeting.metadata.id,
-        meeting.metadata.title,
-        meeting.transcript.segments.length,
-        meeting.metadata.duration
-      )
     },
     onError: (error) => {
       log.error('[Pipeline] Error:', error)

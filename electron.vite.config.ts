@@ -9,7 +9,7 @@ dotenvConfig()
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({
-      exclude: ['@googleapis/calendar', '@googleapis/oauth2', 'express', 'ws', 'toml', 'uuid', 'electron-log', 'encoding']
+      exclude: ['@googleapis/calendar', '@googleapis/oauth2', 'toml', 'uuid', 'electron-log', 'encoding']
     })],
     define: {
       'process.env.QUIETCLAW_GOOGLE_CLIENT_ID': JSON.stringify(process.env.QUIETCLAW_GOOGLE_CLIENT_ID ?? ''),

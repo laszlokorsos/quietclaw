@@ -24,7 +24,6 @@ import { readMeetingMetadata, readTranscript, readSummary, readActions, writeSum
 import { markSummarized, indexMeeting } from './storage/db'
 import { AnthropicSummarizer } from './pipeline/summarizer/anthropic'
 import { recoverAll } from './pipeline/recovery'
-import { notifyRecordingStarted, notifyRecordingStopped } from './api/ws'
 import { formatRows, getAccountTag } from './ipc-helpers'
 import type { AudioCaptureProvider } from './audio/types'
 import type { PipelineOrchestrator } from './pipeline/orchestrator'
@@ -118,7 +117,6 @@ export function setupIpcHandlers(
   ipcMain.handle('pipeline:startRecording', async () => {
     if (!orchestrator) throw new Error('Pipeline not available')
     await orchestrator.startRecording('Me')
-    notifyRecordingStarted(orchestrator.getSessionId() ?? '')
     log.info('[IPC] Recording started from renderer')
     return true
   })
@@ -126,7 +124,6 @@ export function setupIpcHandlers(
   ipcMain.handle('pipeline:stopRecording', async () => {
     if (!orchestrator) throw new Error('Pipeline not available')
     const result = await orchestrator.stopRecording()
-    notifyRecordingStopped(result.metadata.id)
     log.info(`[IPC] Recording stopped from renderer — ${result.transcript.segments.length} segments`)
     return true
   })

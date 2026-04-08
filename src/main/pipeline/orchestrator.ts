@@ -24,7 +24,6 @@ import { syncNow } from '../calendar/sync'
 import { AnthropicSummarizer } from './summarizer/anthropic'
 import { writeSummaryFiles } from '../storage/files'
 import { markSummarized } from '../storage/db'
-import { notifyMeetingSummarized } from '../api/ws'
 import { concatFloat32Arrays, generateSlug } from './utils'
 import type { MatchResult } from '../calendar/matcher'
 import type { StreamingSttProvider, SttResult } from './stt/provider'
@@ -462,7 +461,6 @@ export class PipelineOrchestrator {
             `[Pipeline] Summarization complete: ${summary.topics.length} topics, ` +
               `${actions.length} action items`
           )
-          notifyMeetingSummarized(metadata.id, title, summary.topics.length, actions.length)
         } else {
           log.info('[Pipeline] Summarization enabled but Anthropic API key not set — skipping')
         }

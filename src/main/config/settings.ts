@@ -81,11 +81,6 @@ export interface ConsentConfig {
   platforms: string[]
 }
 
-export interface ApiConfig {
-  enabled: boolean
-  port: number
-}
-
 export interface NotificationsConfig {
   on_meeting_processed: boolean
   desktop_notifications: boolean
@@ -111,7 +106,6 @@ export interface AppConfig {
   }
   stt: SttConfig
   summarization: SummarizationConfig
-  api: ApiConfig
   notifications: NotificationsConfig
 }
 
@@ -185,10 +179,6 @@ function getDefaults(): AppConfig {
         endpoint: 'http://localhost:11434',
         model: 'llama3.1'
       }
-    },
-    api: {
-      enabled: true,
-      port: 19832
     },
     notifications: {
       on_meeting_processed: true,

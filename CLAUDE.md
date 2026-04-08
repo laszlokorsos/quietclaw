@@ -13,7 +13,6 @@ QuietClaw is a macOS Electron desktop app that silently records video calls (Goo
 - **Speech-to-text**: Deepgram (cloud, real-time streaming, built-in diarization). The `SttProvider` interface supports adding alternative providers.
 - **Speaker diarization**: Deepgram-native. Mic vs. system audio split gives free 2-person separation.
 - **Summarization (optional)**: Anthropic Claude Haiku (default). Configurable — can be disabled entirely.
-- **Local API server**: Express.js running in Electron main process
 - **Data storage**: better-sqlite3 for indexes + JSON/MD files on disk
 - **Config**: TOML (`~/.quietclaw/config.toml`)
 - **Secrets**: Electron `safeStorage` API (encrypts at rest using OS-level credential storage)
@@ -75,12 +74,6 @@ quietclaw/
 │   │   │   └── summarizer/
 │   │   │       ├── provider.ts        # Summarization provider interface
 │   │   │       └── anthropic.ts       # Claude API
-│   │   ├── api/
-│   │   │   ├── server.ts              # Express.js HTTP server on localhost
-│   │   │   ├── routes.ts              # REST endpoint handlers
-│   │   │   ├── errors.ts              # Structured error codes
-│   │   │   ├── openapi.ts             # OpenAPI 3.0 spec
-│   │   │   └── ws.ts                  # WebSocket for real-time notifications
 │   │   ├── storage/
 │   │   │   ├── db.ts                  # SQLite schema + queries (better-sqlite3)
 │   │   │   ├── files.ts               # JSON/MD file writer (atomic writes)
@@ -122,7 +115,6 @@ quietclaw/
 │       └── weekly-standup-a1b2/       # Complete example meeting output
 └── tests/
     ├── setup.ts                       # Test setup / shared fixtures
-    ├── api.test.ts                    # API endpoint tests (supertest)
     ├── auto-record.test.ts            # Auto-detection tests
     ├── calendar-matcher.test.ts       # Calendar event matching tests
     ├── recovery.test.ts               # Crash recovery tests
@@ -214,15 +206,6 @@ Call ends
   → Indexed in SQLite, available via REST API
 ```
 
-### Local API
-
-Express.js server on `localhost:19832` (configurable). Mounted at `/api/v1/`.
-
-- Optional bearer token auth (auto-generated, stored via `safeStorage`)
-- CORS enabled for `localhost` origins only
-- All responses use structured JSON error format (see `errors.ts`)
-- OpenAPI 3.0 spec at `/api/v1/openapi.json`
-
 ### Filesystem Output
 
 ```
@@ -256,8 +239,6 @@ Meeting slug: calendar title → lowercased, hyphenated, max 50 chars, 4-char ha
 | `node-addon-api` | Native addon for Core Audio Taps |
 | `better-sqlite3` | SQLite for meeting index |
 | `@deepgram/sdk` | Deepgram STT client (real-time WebSocket) |
-| `express` | Local HTTP API |
-| `ws` | WebSocket server |
 | `@anthropic-ai/sdk` | Claude API client (summarization) |
 | `toml` | Config file parsing |
 | `electron-log` | Structured logging |
@@ -269,29 +250,19 @@ Meeting slug: calendar title → lowercased, hyphenated, max 50 chars, 4-char ha
 If you're Claude Code, OpenClaw, or any agent consuming QuietClaw data:
 
 ```bash
-# Check if running
-curl http://localhost:19832/api/v1/health
-
 # Today's meetings
-curl http://localhost:19832/api/v1/meetings/today
+ls ~/.quietclaw/meetings/$(date +%Y-%m-%d)/
 
-# Transcript
-curl http://localhost:19832/api/v1/meetings/{id}/transcript
+# Read a transcript
+cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json
 
 # Action items
-curl http://localhost:19832/api/v1/meetings/{id}/actions
-
-# Trigger summarization
-curl -X POST http://localhost:19832/api/v1/meetings/{id}/summarize
-
-# Or read files directly
-cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/transcript.json
+cat ~/.quietclaw/meetings/$(date +%Y-%m-%d)/*/actions.json
 ```
 
 ### Recommended workflow
-1. Poll `/api/v1/meetings/today` or watch `~/.quietclaw/meetings/`
+1. Watch `~/.quietclaw/meetings/` for new directories
 2. Read `transcript.json` for raw conversation
 3. Check `actions.json` for items marked `"agent_executable": true`
 4. Present proposed actions to the user
 5. Execute approved actions
-6. Update status via `POST /api/v1/meetings/{id}/actions/{aid}`

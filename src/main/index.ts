@@ -22,7 +22,6 @@ import { setupIpcHandlers, recoveryState } from './ipc'
 import { setupTray } from './tray'
 import { PipelineOrchestrator } from './pipeline/orchestrator'
 import { initDatabase, closeDatabase, syncFilesystemToDb } from './storage/db'
-import { startApiServer, stopApiServer } from './api/server'
 import { startCalendarSync, stopCalendarSync } from './calendar/sync'
 import { startAutoRecord, stopAutoRecord } from './audio/auto-record'
 import { recoverAll } from './pipeline/recovery'
@@ -98,13 +97,6 @@ app.whenReady().then(async () => {
     syncFilesystemToDb(config.general.data_dir)
   } catch (err) {
     log.error('[App] Failed to initialize database:', err)
-  }
-
-  // Start local REST API server
-  try {
-    startApiServer()
-  } catch (err) {
-    log.error('[App] Failed to start API server:', err)
   }
 
   // Listen for OS theme changes — push to renderer when user preference is 'system'
@@ -243,7 +235,6 @@ app.on('before-quit', async () => {
   (app as any).isQuitting = true
   stopAutoRecord()
   stopCalendarSync()
-  await stopApiServer()
   closeDatabase()
 
   if (orchestrator?.getState() === 'recording') {
