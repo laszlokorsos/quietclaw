@@ -29,9 +29,9 @@ Think of it as [Granola](https://granola.ai) but open-source and built for agent
 
 ```
 Call detected (or started manually)
-  → Core Audio Taps captures mic + system audio as separate streams
-  → Stereo PCM streamed in real-time to Deepgram
-  → Speaker diarization separates participants
+  → Audio capture runs in isolated utility process (no UI jank)
+  → Mic + system audio sent as two mono streams to Deepgram
+  → Speaker diarization separates participants on system channel
   → Calendar matcher names speakers from attendee list
 Call ends
   → Transcript assembled with speaker attribution
@@ -192,7 +192,7 @@ data_dir = "~/.quietclaw/meetings"    # Where meetings are stored
 provider = "deepgram"                 # STT provider (deepgram is the default)
 
 [stt.deepgram]
-model = "nova-2"                      # Deepgram model
+model = "nova-3"                      # Deepgram model
 language = "en"
 diarize = true                        # Multi-speaker separation
 
@@ -211,7 +211,7 @@ See [`resources/default_config.toml`](resources/default_config.toml) for all opt
 
 ### Phase 2
 - **Contacts & speaker consistency** — autocomplete from past names, person card, consistent wikilinks
-- **Additional STT providers** — AssemblyAI, OpenAI Whisper API, local whisper.cpp
+- **Additional STT providers** — OpenAI Whisper API, local whisper.cpp (AssemblyAI v3 already shipped)
 - **Additional summarizers** — OpenAI GPT, Ollama (local)
 - **Real-time transcript display** during calls
 - **Windows support** — WASAPI loopback capture (architecture is already abstracted)

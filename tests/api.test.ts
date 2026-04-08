@@ -90,7 +90,7 @@ vi.mock('../src/main/storage/files', () => ({
 vi.mock('../src/main/config/settings', () => ({
   loadConfig: vi.fn().mockReturnValue({
     general: { data_dir: '/tmp/meetings', retain_audio: false, markdown_output: true },
-    stt: { provider: 'deepgram', deepgram: { model: 'nova-2', language: 'en' } },
+    stt: { provider: 'deepgram', deepgram: { model: 'nova-3', language: 'en' } },
     summarization: { enabled: true, provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
     api: { enabled: true, port: 19832 }
   })

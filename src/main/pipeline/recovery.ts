@@ -2,9 +2,12 @@
  * Orphaned recording recovery.
  *
  * When the app crashes during recording, raw PCM audio is left in the
- * temp directory. This module parses those files, reconstructs stereo
- * WAV audio, transcribes via Deepgram's batch API, and writes the
- * result as a normal meeting.
+ * temp directory. This module parses those files, reconstructs a stereo
+ * WAV (left=mic, right=system) for the Deepgram batch API, and writes
+ * the result as a normal meeting.
+ *
+ * Note: Live streaming uses two separate mono WebSocket connections, but
+ * the batch API expects a single stereo file — so we interleave here.
  *
  * Safety rules:
  *   - NEVER delete a PCM file until the meeting is fully written + indexed
@@ -119,9 +122,10 @@ export function parsePcmFile(filePath: string): ParsedPcm {
   const micSamples = concatFloat32Arrays(micChunks)
   const sysSamples = concatFloat32Arrays(sysChunks)
 
-  // Duration from sample counts at 16kHz
+  // Duration from sample counts at the configured sample rate
+  const config = loadConfig()
   const maxSamples = Math.max(micSamples.length, sysSamples.length)
-  const durationSec = maxSamples / 16000
+  const durationSec = maxSamples / config.audio.sample_rate
 
   log.info(
     `[Recovery] Parsed ${filePath}: mic=${micSamples.length} sys=${sysSamples.length} samples, ` +
@@ -144,10 +148,11 @@ export function parsePcmFile(filePath: string): ParsedPcm {
 /**
  * Build a stereo WAV buffer from parsed mic + system audio.
  *
- * Left = mic (you), Right = system (others) — matches the live streaming format.
- * Output: Int16 PCM WAV, 16kHz, stereo.
+ * Left = mic (you), Right = system (others). The batch API expects stereo
+ * multichannel (unlike live streaming which uses separate mono connections).
+ * Output: Int16 PCM WAV, stereo, at the configured sample rate.
  */
-export function buildStereoWav(parsed: ParsedPcm, sampleRate = 16000): Buffer {
+export function buildStereoWav(parsed: ParsedPcm, sampleRate = 48000): Buffer {
   const length = Math.max(parsed.micSamples.length, parsed.sysSamples.length)
 
   // Pad shorter channel with silence
@@ -193,7 +198,7 @@ export function buildStereoWav(parsed: ParsedPcm, sampleRate = 16000): Buffer {
 // Recovery Orchestration
 // ---------------------------------------------------------------------------
 
-/** Minimum file size to attempt recovery (~10s of stereo 16kHz audio) */
+/** Minimum file size to attempt recovery (~3s of stereo 48kHz audio) */
 const MIN_FILE_SIZE = 320 * 1024
 
 /**
@@ -240,11 +245,11 @@ export async function recoverOrphanedRecording(filePath: string): Promise<Recove
     return { file: filePath, status: 'skipped' }
   }
 
-  // Build WAV
-  const wavBuffer = buildStereoWav(parsed)
+  // Build WAV at the configured sample rate
+  const config = loadConfig()
+  const wavBuffer = buildStereoWav(parsed, config.audio.sample_rate)
 
   // Transcribe via Deepgram batch API
-  const config = loadConfig()
   let segments: TranscriptSegment[]
   let duration: number
 

@@ -7,7 +7,8 @@ import os from 'node:os'
 vi.mock('../src/main/config/settings', () => ({
   loadConfig: () => ({
     general: { data_dir: '/tmp/quietclaw-test/meetings', markdown_output: false },
-    stt: { deepgram: { model: 'nova-2', language: 'en', diarize: true } }
+    audio: { sample_rate: 48000 },
+    stt: { deepgram: { model: 'nova-3', language: 'en', diarize: true } }
   })
 }))
 

@@ -7,7 +7,7 @@
  */
 
 export interface CaptureOptions {
-  /** Target sample rate for STT providers (default: 16000) */
+  /** Target sample rate for STT providers (default: 48000) */
   sampleRate: number
   /** Whether to capture system audio (other participants) */
   captureSystemAudio: boolean

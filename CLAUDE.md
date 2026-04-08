@@ -175,9 +175,9 @@ pnpm typecheck           # TypeScript strict mode check
 All platform-specific audio code is isolated behind `AudioCaptureProvider` (`src/main/audio/types.ts`). Nothing outside `src/main/audio/` and `native/` knows which OS is providing the audio.
 
 **macOS implementation:**
-- Core Audio Taps API via native N-API addon — intercepts audio at the system level
+- Core Audio Taps API via native N-API addon — runs in an isolated utility process to prevent audio dropouts
 - Two separate streams: system audio (other participants) and microphone (you)
-- **Stereo strategy**: Mic and system audio sent as a single stereo stream (left=mic, right=system) to Deepgram. Multi-channel transcription processes each channel separately — mic is always "you", diarization runs on the system channel.
+- **Dual mono strategy**: Mic and system audio sent as two separate mono WebSocket connections to the STT provider. Mic channel has no diarization (always "you"); system channel runs diarization for other participants.
 - Requires Screen Recording permission (prompted on first launch)
 - Minimum macOS 13 (Ventura)
 
@@ -204,8 +204,8 @@ Implemented in `src/main/audio/auto-record.ts`. Polls every 2 seconds for:
 
 ```
 Call starts (detected or manual)
-  → Core Audio Taps captures mic + system audio
-  → Stereo stream sent in real-time to Deepgram
+  → Audio capture utility process streams mic + system audio
+  → Two mono connections send audio in real-time to STT provider
   → Calendar matcher finds the relevant event
 Call ends
   → Transcript finalized with speaker attribution

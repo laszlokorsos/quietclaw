@@ -16,7 +16,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { app, utilityProcess, MessageChannelMain } from 'electron'
-import type { UtilityProcess } from 'electron'
+import type { UtilityProcess, MessagePortMain } from 'electron'
 import log from 'electron-log/main'
 import type { AudioCaptureProvider, AudioChunk, AudioDataCallback, CaptureOptions } from './types'
 
@@ -78,7 +78,7 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
   /** Utility process running audio capture */
   private audioProcess: UtilityProcess | null = null
   /** MessagePort for receiving audio data from utility process */
-  private audioPort: MessagePort | null = null
+  private audioPort: MessagePortMain | null = null
 
   constructor() {
     this.native = loadNativeAddon()
@@ -163,7 +163,7 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
     })
 
     // Listen for audio data on port2 (main process side)
-    this.audioPort = port2 as unknown as MessagePort
+    this.audioPort = port2
     port2.on('message', (event: { data: { source: string; buffer: Float32Array; timestamp: number } }) => {
       if (this.callback) {
         const data = event.data
@@ -227,7 +227,7 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
 
     // Close the audio port
     if (this.audioPort) {
-      ;(this.audioPort as unknown as Electron.MessagePortMain).close()
+      this.audioPort.close()
       this.audioPort = null
     }
 
