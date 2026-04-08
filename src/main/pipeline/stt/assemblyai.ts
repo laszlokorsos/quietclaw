@@ -1,11 +1,17 @@
 /**
- * AssemblyAI real-time streaming STT provider — used as Deepgram fallback.
+ * AssemblyAI Universal v3 real-time streaming STT provider — Deepgram fallback.
  *
- * AssemblyAI Universal handles real-time transcription via WebSocket.
- * Unlike Deepgram, AssemblyAI's real-time API only supports mono audio,
- * so we need two connections: one for mic (channel 0) and one for system
- * audio (channel 1). The orchestrator's stereo interleaving is split back
- * into mono before sending.
+ * Uses the v3 streaming API with `format_turns: true` for structured speaker
+ * turn detection (matching Granola's approach). Two separate mono WebSocket
+ * connections: one for mic (channel 0) and one for system audio (channel 1).
+ *
+ * V3 message types:
+ *   - Begin: session started (includes session id)
+ *   - Turn messages: contain `transcript`, `words[]`, `end_of_turn`, `turn_is_formatted`
+ *   - Termination: session ended
+ *
+ * A turn is "final" when `end_of_turn && turn_is_formatted` is true.
+ * Turns with `end_of_turn && !turn_is_formatted` are skipped (unformatted end).
  *
  * Audio is sent as base64-encoded PCM in JSON messages.
  */
@@ -20,11 +26,13 @@ import type {
   SttErrorCallback
 } from './provider'
 
-const ASSEMBLYAI_WS_URL = 'wss://api.assemblyai.com/v2/realtime/ws'
+const ASSEMBLYAI_V3_URL = 'wss://streaming.assemblyai.com/v3/ws'
+const ASSEMBLYAI_API_VERSION = '2025-05-12'
 
 interface AssemblyAISession {
   ws: WebSocket
   channelIndex: number
+  label: string
   connected: boolean
 }
 
@@ -49,80 +57,90 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
   async connect(): Promise<void> {
     if (this.micSession?.connected || this.sysSession?.connected) return
 
-    const sampleRate = this.config.sampleRate
-    const params = new URLSearchParams({
-      sample_rate: String(sampleRate),
-      encoding: 'pcm_s16le',
-      word_boost: '[]'
-    })
-
-    const url = `${ASSEMBLYAI_WS_URL}?${params.toString()}`
-
     log.info(
-      `[AssemblyAI] Connecting — sampleRate=${sampleRate}, ` +
+      `[AssemblyAI] Connecting v3 — sampleRate=${this.config.sampleRate}, ` +
         `key=${this.config.apiKey.slice(0, 8)}...`
     )
 
-    // Connect two sessions: one per channel
+    // Connect two sessions in parallel: one per channel
     const [mic, sys] = await Promise.all([
-      this.connectSession(url, 0),
-      this.connectSession(url, 1)
+      this.connectSession(0, 'mic'),
+      this.connectSession(1, 'sys')
     ])
 
     this.micSession = mic
     this.sysSession = sys
-    log.info('[AssemblyAI] Both channels connected')
+    log.info('[AssemblyAI] Both v3 channels connected')
   }
 
-  private connectSession(url: string, channelIndex: number): Promise<AssemblyAISession> {
+  private connectSession(channelIndex: number, label: string): Promise<AssemblyAISession> {
     return new Promise<AssemblyAISession>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error(`AssemblyAI ch${channelIndex} connection timeout (10s)`))
+        reject(new Error(`AssemblyAI ${label} connection timeout (10s)`))
       }, 10000)
+
+      // V3 connection params as query string
+      const params = new URLSearchParams({
+        sample_rate: String(this.config.sampleRate),
+        format_turns: 'true'
+      })
+
+      const url = `${ASSEMBLYAI_V3_URL}?${params.toString()}`
 
       const ws = new WebSocket(url, {
         headers: {
-          Authorization: this.config.apiKey
+          Authorization: this.config.apiKey,
+          'AssemblyAI-Version': ASSEMBLYAI_API_VERSION
         }
       })
 
-      const session: AssemblyAISession = { ws, channelIndex, connected: false }
-
-      ws.on('open', () => {
-        // AssemblyAI sends a SessionBegins message after open
-      })
+      const session: AssemblyAISession = { ws, channelIndex, label, connected: false }
 
       ws.on('message', (data: WebSocket.Data) => {
         try {
           const event = JSON.parse(data.toString())
 
-          if (event.message_type === 'SessionBegins') {
+          // V3 Begin message = session started
+          if (event.type === 'Begin') {
             clearTimeout(timeout)
             session.connected = true
-            log.info(`[AssemblyAI] Ch${channelIndex} session started — id=${event.session_id}`)
+            log.info(`[AssemblyAI] ${label} (ch${channelIndex}) session started — id=${event.id}`)
             resolve(session)
             return
           }
 
-          this.handleMessage(event, channelIndex)
+          // V3 Termination message
+          if (event.type === 'Termination') {
+            log.info(`[AssemblyAI] ${label} session terminated`)
+            return
+          }
+
+          // V3 Error
+          if (event.error) {
+            log.error(`[AssemblyAI] ${label} error: ${event.error}`)
+            for (const cb of this.errorCallbacks) cb(new Error(event.error))
+            return
+          }
+
+          // Everything else is a turn message
+          this.handleTurnMessage(event, channelIndex, label)
         } catch (err) {
-          log.error(`[AssemblyAI] Ch${channelIndex} parse error:`, err)
+          log.error(`[AssemblyAI] ${label} parse error:`, err)
         }
       })
 
       ws.on('error', (err: Error) => {
-        log.error(`[AssemblyAI] Ch${channelIndex} WebSocket error:`, err.message)
+        log.error(`[AssemblyAI] ${label} WebSocket error:`, err.message)
         for (const cb of this.errorCallbacks) cb(err)
         if (!session.connected) {
           clearTimeout(timeout)
-          reject(new Error(`AssemblyAI ch${channelIndex} connection failed: ${err.message}`))
+          reject(new Error(`AssemblyAI ${label} connection failed: ${err.message}`))
         }
       })
 
       ws.on('close', (code: number) => {
-        log.info(`[AssemblyAI] Ch${channelIndex} WebSocket closed — code=${code}`)
+        log.info(`[AssemblyAI] ${label} WebSocket closed — code=${code}`)
         session.connected = false
-        // Only fire close callbacks if both sessions are disconnected
         const otherSession = channelIndex === 0 ? this.sysSession : this.micSession
         if (!otherSession?.connected) {
           for (const cb of this.closeCallbacks) cb()
@@ -132,24 +150,15 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
   }
 
   send(audio: Buffer, source: 'microphone' | 'system'): void {
-    // Route mono audio to the appropriate session by source label
-    if (source === 'microphone') {
-      this.sendToSession(this.micSession, audio)
-    } else {
-      this.sendToSession(this.sysSession, audio)
-    }
-  }
-
-  private sendToSession(session: AssemblyAISession | null, audio: Buffer): void {
+    const session = source === 'microphone' ? this.micSession : this.sysSession
     if (!session?.ws || session.ws.readyState !== WebSocket.OPEN) return
-    // AssemblyAI expects base64-encoded audio in a JSON message
+    // V3 still uses base64-encoded audio in JSON
     session.ws.send(JSON.stringify({
       audio_data: audio.toString('base64')
     }))
   }
 
   finalize(): void {
-    // Send terminate_session to both
     const terminateMsg = JSON.stringify({ terminate_session: true })
     if (this.micSession?.ws?.readyState === WebSocket.OPEN) {
       this.micSession.ws.send(terminateMsg)
@@ -157,7 +166,7 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
     if (this.sysSession?.ws?.readyState === WebSocket.OPEN) {
       this.sysSession.ws.send(terminateMsg)
     }
-    log.info('[AssemblyAI] Finalizing — sent terminate_session')
+    log.info('[AssemblyAI] Finalizing — sent terminate_session to both')
   }
 
   async disconnect(): Promise<void> {
@@ -206,60 +215,65 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
     this.closeCallbacks.push(callback)
   }
 
-  private handleMessage(event: AssemblyAIEvent, channelIndex: number): void {
-    if (event.message_type === 'FinalTranscript' || event.message_type === 'PartialTranscript') {
-      if (!event.text?.trim()) return
+  /**
+   * Handle a v3 turn message.
+   *
+   * V3 turns have: transcript, words[], end_of_turn, turn_is_formatted.
+   * - end_of_turn && turn_is_formatted = final result
+   * - end_of_turn && !turn_is_formatted = skip (unformatted end-of-turn)
+   * - otherwise = partial result
+   */
+  private handleTurnMessage(event: AssemblyAITurnEvent, channelIndex: number, label: string): void {
+    // Skip unformatted end-of-turn messages (Granola does the same)
+    if (event.end_of_turn && event.turn_is_formatted === false) return
 
-      const isFinal = event.message_type === 'FinalTranscript'
-      const words = (event.words ?? []).map((w) => ({
-        word: w.text,
-        start: w.start / 1000, // AssemblyAI uses milliseconds
-        end: w.end / 1000,
-        confidence: w.confidence
-      }))
+    if (!event.transcript?.trim()) return
+    if (!event.words?.length) return
 
-      const start = words.length > 0 ? words[0].start : (event.audio_start ?? 0) / 1000
-      const end = words.length > 0 ? words[words.length - 1].end : (event.audio_end ?? 0) / 1000
+    const isFinal = !!(event.end_of_turn && event.turn_is_formatted)
 
-      const result: SttResult = {
-        channelIndex,
-        transcript: event.text,
-        start,
-        duration: end - start,
-        isFinal,
-        confidence: event.confidence ?? 0.9,
-        words,
-        speakerId: 0 // AssemblyAI real-time doesn't do diarization
-      }
+    const words = event.words.map((w) => ({
+      word: w.text,
+      start: w.start / 1000, // V3 still uses milliseconds
+      end: w.end / 1000,
+      confidence: w.confidence
+    }))
 
-      log.info(
-        `[AssemblyAI] Ch${channelIndex} (${channelIndex === 0 ? 'mic' : 'sys'}) ` +
-          `${isFinal ? 'FINAL' : 'partial'}: "${event.text.slice(0, 80)}${event.text.length > 80 ? '...' : ''}"`
-      )
+    const start = words[0].start
+    const end = words[words.length - 1].end
 
-      for (const cb of this.resultCallbacks) cb(result)
-    } else if (event.message_type === 'SessionTerminated') {
-      log.info(`[AssemblyAI] Ch${channelIndex} session terminated`)
-    } else if (event.error) {
-      log.error(`[AssemblyAI] Ch${channelIndex} error: ${event.error}`)
-      for (const cb of this.errorCallbacks) cb(new Error(event.error))
+    // Compute average confidence from words
+    const avgConfidence = words.reduce((sum, w) => sum + w.confidence, 0) / words.length
+
+    const result: SttResult = {
+      channelIndex,
+      transcript: event.transcript,
+      start,
+      duration: end - start,
+      isFinal,
+      confidence: avgConfidence,
+      words,
+      speakerId: 0 // AssemblyAI real-time doesn't do diarization
     }
+
+    log.info(
+      `[AssemblyAI] ${label} (ch${channelIndex}) ` +
+        `${isFinal ? 'FINAL' : 'partial'}: "${event.transcript.slice(0, 80)}${event.transcript.length > 80 ? '...' : ''}"`
+    )
+
+    for (const cb of this.resultCallbacks) cb(result)
   }
 }
 
-// AssemblyAI real-time API response types
-interface AssemblyAIEvent {
-  message_type: string
-  text?: string
-  words?: Array<{
+// AssemblyAI v3 turn message shape
+interface AssemblyAITurnEvent {
+  transcript: string
+  words: Array<{
     text: string
     start: number
     end: number
     confidence: number
   }>
-  audio_start?: number
-  audio_end?: number
-  confidence?: number
-  session_id?: string
-  error?: string
+  end_of_turn?: boolean
+  turn_is_formatted?: boolean
 }

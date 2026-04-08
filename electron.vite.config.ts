@@ -17,6 +17,10 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
+        input: {
+          index: 'src/main/index.ts',
+          'audio-process': 'src/main/audio/audio-process.ts'
+        },
         external: ['better-sqlite3', 'bufferutil', 'utf-8-validate']
       }
     }

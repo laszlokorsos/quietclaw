@@ -10,6 +10,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid'
+import { powerMonitor } from 'electron'
 import log from 'electron-log/main'
 import { loadConfig } from '../config/settings'
 import { getDeepgramApiKey, getAssemblyAIApiKey } from '../config/secrets'
@@ -72,6 +73,11 @@ export class PipelineOrchestrator {
   private sysBuffer: Float32Array[] = []
   private flushTimer: ReturnType<typeof setInterval> | null = null
   private chunksSent = 0
+
+  // Sleep/wake handling — reconnect STT after system resume
+  private suspendHandler: (() => void) | null = null
+  private resumeHandler: (() => void) | null = null
+  private suspendedAt: number | null = null
 
   constructor(audioCapture: AudioCaptureProvider) {
     this.audioCapture = audioCapture
@@ -179,11 +185,16 @@ export class PipelineOrchestrator {
       log.warn('[Pipeline] Calendar sync/match failed (continuing without):', err)
     }
 
-    // Initialize speaker identifier with calendar attendees
+    // Initialize speaker identifier with calendar attendees + tuning config
     this.speakerIdentifier = new SpeakerIdentifier({
       userName,
-      attendees: attendees.length > 0 ? attendees : undefined
+      attendees: attendees.length > 0 ? attendees : undefined,
+      bleedTimeWindowSec: config.tuning.bleed_time_window_sec,
+      bleedSimilarityThreshold: config.tuning.bleed_similarity_threshold,
+      bleedMinWords: config.tuning.bleed_min_words
     })
+
+    const sampleRate = config.audio.sample_rate
 
     // Initialize STT provider (Deepgram primary, AssemblyAI fallback)
     // Each provider manages two separate mono connections internally
@@ -193,8 +204,10 @@ export class PipelineOrchestrator {
       model: config.stt.deepgram.model,
       language: config.stt.deepgram.language,
       diarize: config.stt.deepgram.diarize,
-      sampleRate: 16000,
-      channels: 1 // Each connection is mono; provider manages two internally
+      sampleRate,
+      channels: 1, // Each connection is mono; provider manages two internally
+      utteranceEndMs: config.tuning.deepgram_utterance_end_ms,
+      endpointingMs: config.tuning.deepgram_endpointing_ms
     })
 
     this.setupSttCallbacks()
@@ -212,7 +225,7 @@ export class PipelineOrchestrator {
           model: 'universal',
           language: config.stt.deepgram.language,
           diarize: false, // AssemblyAI real-time doesn't support diarization
-          sampleRate: 16000,
+          sampleRate,
           channels: 1 // Each connection is mono
         })
         this.setupSttCallbacks()
@@ -234,7 +247,7 @@ export class PipelineOrchestrator {
       }
     }
 
-    // Set up audio capture callback — buffer chunks for interleaving
+    // Set up audio capture callback — buffer chunks per channel
     this.audioCapture.onAudioData((chunk: AudioChunk) => {
       if (chunk.source === 'microphone') {
         this.micBuffer.push(chunk.buffer)
@@ -243,24 +256,52 @@ export class PipelineOrchestrator {
       }
     })
 
-    // Flush buffered audio to Deepgram every 200ms as properly interleaved stereo.
-    // This ensures both channels have continuous audio instead of alternating
-    // bursts of one channel + silence.
+    // Flush buffered audio to STT provider at configured interval
     this.flushTimer = setInterval(() => {
       this.flushAudioBuffers()
-    }, 200)
+    }, config.audio.buffer_flush_interval_ms)
 
     // Start audio capture with echo cancellation (matches Granola's approach:
     // Apple Voice Processing IO cancels speaker bleed from mic using system
     // audio output as reference signal)
     await this.audioCapture.startCapture({
-      sampleRate: 16000,
+      sampleRate,
       captureSystemAudio: true,
       captureMicrophone: true,
       enableEchoCancellation: config.audio.echo_cancellation,
       enableAGC: config.audio.agc,
       disableEchoCancellationOnHeadphones: config.audio.disable_echo_cancellation_on_headphones
     })
+
+    // Handle sleep/wake — reconnect STT after system resume
+    this.suspendHandler = () => {
+      if (this.state !== 'recording') return
+      log.warn('[Pipeline] System suspending — flushing audio buffers')
+      this.flushAudioBuffers()
+      this.suspendedAt = Date.now()
+    }
+
+    this.resumeHandler = () => {
+      if (this.state !== 'recording') return
+      const duration = this.suspendedAt ? (Date.now() - this.suspendedAt) / 1000 : 0
+      this.suspendedAt = null
+      log.warn(`[Pipeline] System resumed after ${duration.toFixed(0)}s — reconnecting STT`)
+
+      if (this.sttProvider && !this.sttProvider.isConnected()) {
+        this.sttProvider.connect()
+          .then(() => {
+            this.setupSttCallbacks()
+            log.info('[Pipeline] STT reconnected after resume')
+          })
+          .catch((err) => {
+            log.error('[Pipeline] Failed to reconnect STT after resume:', err)
+            this.events.onError?.(err instanceof Error ? err : new Error(String(err)))
+          })
+      }
+    }
+
+    powerMonitor.on('suspend', this.suspendHandler)
+    powerMonitor.on('resume', this.resumeHandler)
 
     this.setState('recording')
     log.info('[Pipeline] Recording started')
@@ -553,11 +594,12 @@ export class PipelineOrchestrator {
       const prev = merged[merged.length - 1]
       const curr = segments[i]
 
-      // Merge if same speaker and gap < 1 second
+      // Merge if same speaker and gap < threshold
+      const mergeGap = loadConfig().tuning.merge_gap_threshold_sec
       if (
         prev.speaker === curr.speaker &&
         prev.source === curr.source &&
-        curr.start - prev.end < 1.0
+        curr.start - prev.end < mergeGap
       ) {
         prev.text += ' ' + curr.text
         prev.end = curr.end
@@ -575,6 +617,17 @@ export class PipelineOrchestrator {
 
   /** Reset session state after a failure */
   private cleanup(): void {
+    // Remove sleep/wake listeners
+    if (this.suspendHandler) {
+      powerMonitor.off('suspend', this.suspendHandler)
+      this.suspendHandler = null
+    }
+    if (this.resumeHandler) {
+      powerMonitor.off('resume', this.resumeHandler)
+      this.resumeHandler = null
+    }
+    this.suspendedAt = null
+
     if (this.flushTimer) {
       clearInterval(this.flushTimer)
       this.flushTimer = null

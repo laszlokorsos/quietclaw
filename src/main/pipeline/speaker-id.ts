@@ -43,6 +43,10 @@ export interface SpeakerIdConfig {
   userName: string
   /** Calendar attendees for this meeting (if available) */
   attendees?: CalendarAttendee[]
+  /** Bleed dedup tuning (safety net behind echo cancellation) */
+  bleedTimeWindowSec?: number
+  bleedSimilarityThreshold?: number
+  bleedMinWords?: number
 }
 
 export class SpeakerIdentifier {
@@ -197,10 +201,11 @@ export class SpeakerIdentifier {
 
     if (micSegments.length === 0 || sysSegments.length === 0) return segments
 
-    // Tunable parameters
-    const TIME_WINDOW = 3.0       // seconds — how close in time to consider a match
-    const SIMILARITY_THRESHOLD = 0.5  // 50% word overlap = bleed
-    const MIN_WORDS = 2           // skip very short segments ("Yeah", "Mhmm")
+    // Tunable parameters — safety net behind echo cancellation.
+    // With AEC working, this should rarely fire.
+    const TIME_WINDOW = this.config.bleedTimeWindowSec ?? 3.0
+    const SIMILARITY_THRESHOLD = this.config.bleedSimilarityThreshold ?? 0.5
+    const MIN_WORDS = this.config.bleedMinWords ?? 2
 
     const bleedIndices = new Set<TranscriptSegment>()
 

@@ -21,6 +21,10 @@ export interface SttProviderConfig {
   sampleRate: number
   /** Number of audio channels (1 = mono, 2 = stereo multi-channel) */
   channels: number
+  /** Deepgram: silence duration before finalizing an utterance (ms) */
+  utteranceEndMs?: number
+  /** Deepgram: endpointing sensitivity (ms) */
+  endpointingMs?: number
 }
 
 /** Raw result from the STT provider before speaker identification */

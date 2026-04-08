@@ -35,9 +35,21 @@ export interface CalendarSettingsConfig {
 }
 
 export interface AudioConfig {
+  sample_rate: number
+  buffer_flush_interval_ms: number
   echo_cancellation: boolean
   agc: boolean
   disable_echo_cancellation_on_headphones: boolean
+}
+
+export interface TuningConfig {
+  deepgram_utterance_end_ms: number
+  deepgram_endpointing_ms: number
+  bleed_time_window_sec: number
+  bleed_similarity_threshold: number
+  bleed_min_words: number
+  merge_gap_threshold_sec: number
+  meeting_debounce_count: number
 }
 
 export interface SttConfig {
@@ -91,6 +103,7 @@ export interface AppConfig {
     launch_at_login: boolean
   }
   audio: AudioConfig
+  tuning: TuningConfig
   consent: ConsentConfig
   calendar: {
     accounts: CalendarAccountConfig[]
@@ -123,9 +136,20 @@ function getDefaults(): AppConfig {
       launch_at_login: true
     },
     audio: {
+      sample_rate: 48000,
+      buffer_flush_interval_ms: 200,
       echo_cancellation: true,
       agc: true,
       disable_echo_cancellation_on_headphones: true
+    },
+    tuning: {
+      deepgram_utterance_end_ms: 1000,
+      deepgram_endpointing_ms: 300,
+      bleed_time_window_sec: 3.0,
+      bleed_similarity_threshold: 0.5,
+      bleed_min_words: 2,
+      merge_gap_threshold_sec: 1.0,
+      meeting_debounce_count: 3
     },
     consent: {
       auto_message_enabled: false,

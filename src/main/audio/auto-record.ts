@@ -26,8 +26,6 @@ let activeOrchestrator: PipelineOrchestrator | null = null
 let activeMeetingBundleId: string | null = null
 let micMonitor: MicMonitor | null = null
 
-/** Consecutive "meeting:ended" polls before we actually stop. Prevents false stops from brief window flicker. */
-const MISSED_POLLS_REQUIRED = 3
 let missedPollCount = 0
 
 /**
@@ -142,9 +140,10 @@ function handleMeetingEvent(event: MeetingDetectionEvent): void {
 
     // Debounce: require multiple consecutive "ended" signals before stopping.
     // Prevents false stops from brief window title flicker or audio indicator changes.
+    const debounceCount = loadConfig().tuning.meeting_debounce_count
     missedPollCount++
-    if (missedPollCount < MISSED_POLLS_REQUIRED) {
-      log.info(`[AutoRecord] Meeting poll miss ${missedPollCount}/${MISSED_POLLS_REQUIRED} — waiting...`)
+    if (missedPollCount < debounceCount) {
+      log.info(`[AutoRecord] Meeting poll miss ${missedPollCount}/${debounceCount} — waiting...`)
       return
     }
 

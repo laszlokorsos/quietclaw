@@ -10,9 +10,20 @@ markdown_output = true             # Generate human-readable .md files alongside
 launch_at_login = true             # Start QuietClaw automatically when you log in
 
 [audio]
+sample_rate = 48000                # Hz — Deepgram nova-3 accepts up to 48kHz natively
+buffer_flush_interval_ms = 200     # How often buffered audio is flushed to STT (ms)
 echo_cancellation = true           # Apple Voice Processing echo cancellation on mic input
 agc = true                         # Automatic gain control (when echo cancellation is on)
 disable_echo_cancellation_on_headphones = true  # Skip AEC when headphones detected (no bleed)
+
+[tuning]
+deepgram_utterance_end_ms = 1000   # Silence duration before Deepgram finalizes an utterance
+deepgram_endpointing_ms = 300      # Endpointing sensitivity (lower = faster, may split utterances)
+bleed_time_window_sec = 3.0        # Time window for mic bleed dedup (safety net behind AEC)
+bleed_similarity_threshold = 0.5   # Word overlap % to consider mic segment as bleed
+bleed_min_words = 2                # Skip bleed dedup for very short segments
+merge_gap_threshold_sec = 1.0      # Merge adjacent same-speaker segments if gap < this
+meeting_debounce_count = 3         # Consecutive "missed" polls before stopping auto-record
 
 [consent]
 auto_message_enabled = false       # Auto-send a consent message in meeting chat

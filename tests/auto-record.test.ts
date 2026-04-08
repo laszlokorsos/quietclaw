@@ -7,6 +7,9 @@ vi.mock('../src/main/config/settings', () => ({
       settings: {
         use_for_auto_detect: true
       }
+    },
+    tuning: {
+      meeting_debounce_count: 3
     }
   })
 }))

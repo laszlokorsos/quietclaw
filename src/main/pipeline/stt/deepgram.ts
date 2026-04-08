@@ -87,9 +87,9 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
       smart_format: 'true',
       punctuate: 'true',
       interim_results: 'true',
-      utterance_end_ms: '1000',
+      utterance_end_ms: String(this.config.utteranceEndMs ?? 1000),
       vad_events: 'true',
-      endpointing: '300'
+      endpointing: String(this.config.endpointingMs ?? 300)
     })
 
     const url = `${DEEPGRAM_WS_URL}?${params.toString()}`
