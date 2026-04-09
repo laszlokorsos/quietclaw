@@ -43,9 +43,11 @@ export default function SpeakerMapping({ speakers, segments, attendees, onSave, 
 
   if (unmapped.length === 0 && previouslyMapped.length === 0) return null
 
-  // Names that are already identified (mic speaker + any non-anonymous speakers)
+  // Only exclude the mic speaker ("Me") from the dropdown — previously mapped
+  // system speakers should still be selectable so the same name can be assigned
+  // to multiple diarized speakers when diarization over-splits
   const alreadyNamed = new Set(
-    speakers.filter((s) => !/^Speaker [A-Z]$/.test(s.name)).map((s) => s.name)
+    speakers.filter((s) => s.source === 'microphone').map((s) => s.name)
   )
 
   // Find which speakers in the current mapping share the same target name (for merge hints)
@@ -123,14 +125,12 @@ export default function SpeakerMapping({ speakers, segments, attendees, onSave, 
               {resetting ? 'Resetting...' : 'Reset names'}
             </button>
           )}
-          {unmapped.length > 0 && (
-            <button
-              onClick={() => setExpanded(true)}
-              className="text-sm text-accent hover:text-accent-hover transition-colors"
-            >
-              Identify
-            </button>
-          )}
+          <button
+            onClick={() => setExpanded(true)}
+            className="text-sm text-accent hover:text-accent-hover transition-colors"
+          >
+            {unmapped.length > 0 ? 'Identify' : 'Edit names'}
+          </button>
         </div>
       </div>
     )
@@ -142,11 +142,11 @@ export default function SpeakerMapping({ speakers, segments, attendees, onSave, 
       <h4 className="text-sm font-medium text-text-primary mb-4">Identify speakers</h4>
 
       <div className="space-y-5">
-        {unmapped.map((speaker) => {
+        {[...unmapped, ...previouslyMapped].map((speaker) => {
           const quotes = getRepresentativeQuotes(segments, speaker.name)
           const isCustom = customInputs[speaker.name]
 
-          // Available attendees: exclude already-identified speakers (like "Me")
+          // Available attendees: exclude only the mic speaker ("Me")
           const available = attendees.filter((a) => !alreadyNamed.has(a.name))
           const mergePartners = getMergePartners(speaker.name)
 
