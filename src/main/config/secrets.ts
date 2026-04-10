@@ -20,6 +20,13 @@ import log from 'electron-log/main'
 
 const SECRETS_DIR = path.join(os.homedir(), '.quietclaw', 'secrets')
 
+/**
+ * Keys that failed decryption this session — avoids retrying every 5 minutes
+ * when safeStorage identity has changed (unsigned rebuild).
+ * Cleared when the app restarts or the key is re-stored via setSecret().
+ */
+const staleKeys = new Set<string>()
+
 /** Ensure the secrets directory exists with restricted permissions */
 function ensureSecretsDir(): void {
   if (!fs.existsSync(SECRETS_DIR)) {
@@ -44,13 +51,19 @@ export function setSecret(key: string, value: string): void {
   ensureSecretsDir()
   const encrypted = safeStorage.encryptString(value)
   fs.writeFileSync(secretPath(key), encrypted, { mode: 0o600 })
+  staleKeys.delete(key)
   log.info(`[Secrets] Stored secret: ${key}`)
 }
 
-/** Retrieve a secret value. Returns null if not found. */
+/** Retrieve a secret value. Returns null if not found or undecryptable. */
 export function getSecret(key: string): string | null {
   const filePath = secretPath(key)
   if (!fs.existsSync(filePath)) {
+    return null
+  }
+
+  // Skip keys that already failed this session (e.g. stale after unsigned rebuild)
+  if (staleKeys.has(key)) {
     return null
   }
 
@@ -63,7 +76,9 @@ export function getSecret(key: string): string | null {
     const encrypted = fs.readFileSync(filePath)
     return safeStorage.decryptString(encrypted)
   } catch (err) {
-    log.error(`[Secrets] Failed to decrypt ${key}:`, err)
+    // Mark as stale so we don't retry every sync cycle
+    staleKeys.add(key)
+    log.warn(`[Secrets] Cannot decrypt ${key} — likely stale from a previous build. Re-enter credentials in Settings to fix.`)
     return null
   }
 }
@@ -73,6 +88,7 @@ export function deleteSecret(key: string): void {
   const filePath = secretPath(key)
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath)
+    staleKeys.delete(key)
     log.info(`[Secrets] Deleted secret: ${key}`)
   }
 }
