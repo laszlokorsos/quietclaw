@@ -207,7 +207,17 @@ export function setupIpcHandlers(
   })
 
   ipcMain.handle('calendar:addGoogle', async () => {
-    return addGoogleAccount()
+    const email = await addGoogleAccount()
+    // Immediate sync so events populate right after OAuth. Otherwise the user
+    // waits up to 5 minutes for the next periodic tick and sees an empty list,
+    // making OAuth look broken. Failures here just log — the periodic sync
+    // will retry and the UI will eventually catch up.
+    try {
+      await syncNow()
+    } catch (err) {
+      log.warn('[IPC] Post-OAuth syncNow failed (periodic sync will retry):', err)
+    }
+    return email
   })
 
   ipcMain.handle('calendar:remove', (_event, email: string) => {

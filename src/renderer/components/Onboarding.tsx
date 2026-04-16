@@ -20,6 +20,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [anthropicError, setAnthropicError] = useState<string | null>(null)
   const [connectingCalendar, setConnectingCalendar] = useState(false)
   const [calendarConnected, setCalendarConnected] = useState(false)
+  const [calendarError, setCalendarError] = useState<string | null>(null)
   const [launchAtLogin, setLaunchAtLogin] = useState(true)
 
   const stepIndex = STEPS.indexOf(step)
@@ -96,14 +97,21 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   async function connectCalendar() {
     if (!api) return
     setConnectingCalendar(true)
+    setCalendarError(null)
     try {
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('timeout')), 120_000)
       )
       await Promise.race([api.calendar.addGoogle(), timeout])
       setCalendarConnected(true)
-    } catch {
-      // User abandoned OAuth or it timed out
+    } catch (err) {
+      // Surface non-user-initiated failures (scope rejection, port conflict,
+      // network timeout) so the user has something actionable instead of a
+      // silently-dropped spinner.
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg !== 'timeout' && !msg.includes('cancelled') && !msg.includes('superseded')) {
+        setCalendarError(msg)
+      }
     }
     setConnectingCalendar(false)
   }
@@ -301,12 +309,19 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={connectCalendar}
-                  className="w-full px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover transition-colors"
-                >
-                  Connect Google Account
-                </button>
+                <>
+                  {calendarError && (
+                    <div className="bg-red-950/30 border border-red-900/40 rounded-xl px-4 py-3">
+                      <p className="text-xs text-red-300/90 leading-relaxed">{calendarError}</p>
+                    </div>
+                  )}
+                  <button
+                    onClick={connectCalendar}
+                    className="w-full px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover transition-colors"
+                  >
+                    {calendarError ? 'Try again' : 'Connect Google Account'}
+                  </button>
+                </>
               )}
             </div>
           )}

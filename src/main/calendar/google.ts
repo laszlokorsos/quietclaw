@@ -74,27 +74,72 @@ export async function authorizeGoogleCalendar(): Promise<string> {
   // Start ephemeral server to capture the callback
   const code = await captureAuthCode(authUrl)
 
-  // Exchange code for tokens
-  const { tokens } = await oauth2Client.getToken(code)
+  // Exchange code for tokens. Wrap in a timeout so a slow/hung Google endpoint
+  // (corporate proxy, bad network) fails loud instead of spinning the UI forever.
+  const { tokens } = await withTimeout(
+    oauth2Client.getToken(code),
+    20_000,
+    'Timed out exchanging authorization code (20s). Check your network and try again.'
+  )
   oauth2Client.setCredentials(tokens)
 
   if (!tokens.refresh_token) {
     throw new Error('No refresh token received — try revoking access at myaccount.google.com/permissions and re-authorizing')
   }
 
-  // Get user email
+  // Validate the granted scopes. Google's consent flow allows partial grants
+  // (user unchecks scopes, or the GCP consent screen doesn't have Calendar
+  // registered). Without this check, OAuth "succeeds" silently and the user
+  // only learns the account is useless when fetchEvents later returns 403.
+  const grantedScopes = (tokens.scope ?? '').split(/\s+/).filter(Boolean)
+  const missing = SCOPES.filter((s) => !grantedScopes.includes(s))
+  if (missing.length > 0) {
+    throw new Error(
+      `Google did not grant the required scopes. Missing: ${missing.join(', ')}. ` +
+        `On the consent screen, make sure the Calendar checkbox is enabled, ` +
+        `and verify these scopes are approved in your GCP OAuth consent screen.`
+    )
+  }
+
+  // Get user email — also timeout-bounded.
   const oauth2Api = oauth2({ version: 'v2', auth: oauth2Client })
-  const userInfo = await oauth2Api.userinfo.get()
+  const userInfo = await withTimeout(
+    oauth2Api.userinfo.get(),
+    15_000,
+    'Timed out fetching Google user info (15s).'
+  )
   const email = userInfo.data.email
   if (!email) {
     throw new Error('Could not determine Google account email')
   }
 
-  // Store refresh token securely
+  // Store refresh token securely. clearRefreshTokenError undoes any "dead
+  // token" flag set by an earlier invalid_grant — critical when the user
+  // removes and re-adds the same account in a single session, because the
+  // in-memory dead-set would otherwise make `getAuthenticatedClient` return
+  // null for the freshly-authorized account.
   setCalendarRefreshToken(email, tokens.refresh_token)
+  clearRefreshTokenError(email)
   log.info(`[Calendar] Authorized Google Calendar for ${email}`)
 
   return email
+}
+
+/** Reject the given promise after `ms` with `message` if it hasn't settled. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      }
+    )
+  })
 }
 
 /**
@@ -116,18 +161,29 @@ export function abortGoogleAuth(): void {
  * Open the auth URL in the browser and wait for the callback.
  * Returns the authorization code.
  */
-function captureAuthCode(authUrl: string): Promise<string> {
-  // Clean up any lingering server from a previous cancelled attempt
+async function captureAuthCode(authUrl: string): Promise<string> {
+  // Clean up any lingering server from a previous cancelled attempt.
+  // `server.close()` is asynchronous — the port isn't released until all
+  // open sockets drain and the close callback fires. We used to call close()
+  // synchronously and then immediately listen() on the same port on the new
+  // server, which races the OS-level port release. When the bind failed the
+  // next OAuth flow would EADDRINUSE and the UI would appear to hang.
   if (activeOAuthServer) {
-    activeOAuthServer.close()
+    const server = activeOAuthServer
     activeOAuthServer = null
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve())
+      // Safety fallback if close() never fires (no open connections + quirky
+      // Node version). 2s is plenty; listen() will error loud if still busy.
+      setTimeout(() => resolve(), 2000)
+    })
   }
   if (activeOAuthReject) {
     activeOAuthReject(new Error('OAuth flow superseded by new attempt'))
     activeOAuthReject = null
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     activeOAuthReject = reject
 
     function sendHtml(res: ServerResponse, html: string) {

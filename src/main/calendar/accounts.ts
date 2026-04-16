@@ -16,7 +16,7 @@ import {
   getCalendarRefreshToken,
   deleteSecret
 } from '../config/secrets'
-import { authorizeGoogleCalendar } from './google'
+import { authorizeGoogleCalendar, clearRefreshTokenError } from './google'
 import { calendarLabel } from '../ipc-helpers'
 import type { CalendarAccountConfig } from '../config/settings'
 
@@ -71,6 +71,11 @@ export async function addGoogleAccount(): Promise<string> {
 export function removeAccount(email: string): void {
   // Remove refresh token from safeStorage
   deleteSecret(`quietclaw:calendar:${email}:refresh_token`)
+
+  // Clear the in-memory "dead token" flag so a re-add with the same email
+  // starts clean. Without this, the previous invalid_grant flag survives and
+  // getAuthenticatedClient returns null for the newly-authorized account.
+  clearRefreshTokenError(email)
 
   // Remove from config file
   removeAccountFromConfig(email)

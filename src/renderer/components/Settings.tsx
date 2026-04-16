@@ -155,8 +155,15 @@ export default function Settings({
       )
       await Promise.race([api.calendar.addGoogle(), timeout])
       setCalendarAccounts(await api.calendar.accounts())
-    } catch {
-      // User abandoned OAuth or it timed out
+    } catch (err) {
+      // Surface the real error (scope rejection, port conflict, network timeout,
+      // invalid_grant). Previously swallowed — users saw a silent spinner drop.
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg === 'timeout' || msg.includes('cancelled') || msg.includes('superseded')) {
+        // User-initiated, no toast needed
+      } else {
+        addToast(`Calendar connection failed: ${msg}`, 'error')
+      }
     }
     setConnectingCalendar(false)
   }
