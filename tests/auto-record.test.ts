@@ -101,7 +101,10 @@ describe('Auto-Record (Meeting Detection)', () => {
     // Allow async startRecording to resolve
     await new Promise((r) => setTimeout(r, 50))
 
-    expect(orch.startRecording).toHaveBeenCalledWith('Me')
+    // No args — the orchestrator resolves the user name internally from
+    // the matched calendar event's self-attendee (or config / $USER / 'Me'
+    // fallback). See orchestrator.resolveUserName.
+    expect(orch.startRecording).toHaveBeenCalledWith()
   })
 
   it('does NOT start when orchestrator is already recording', async () => {
