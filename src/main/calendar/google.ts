@@ -203,16 +203,46 @@ function captureAuthCode(authUrl: string): Promise<string> {
   })
 }
 
+/** Per-account flag: true once the stored refresh token has been rejected by
+ *  Google (invalid_grant). Consumers poll this to surface a "reconnect needed"
+ *  state instead of hammering the API every sync. */
+const deadRefreshTokens = new Set<string>()
+
+/** Did Google reject the stored refresh token for this account? */
+export function isRefreshTokenInvalid(email: string): boolean {
+  return deadRefreshTokens.has(email)
+}
+
+/** Reset after the user reconnects the account. */
+export function clearRefreshTokenError(email: string): void {
+  deadRefreshTokens.delete(email)
+}
+
 /**
  * Get an authenticated OAuth2 client for a given account email.
- * Returns null if no refresh token is stored.
+ * Returns null if no refresh token is stored or the stored token has been
+ * rejected by Google (requires user to reconnect).
+ *
+ * Subscribes to the 'tokens' event so if Google rotates the refresh token
+ * mid-flight we persist the new one. Without this, the rotation would be
+ * thrown away and the next sync after app restart would use a stale token.
  */
 export function getAuthenticatedClient(email: string): OAuth2Client | null {
+  if (deadRefreshTokens.has(email)) return null
+
   const refreshToken = getCalendarRefreshToken(email)
   if (!refreshToken) return null
 
   const client = createOAuth2Client()
   client.setCredentials({ refresh_token: refreshToken })
+
+  client.on('tokens', (tokens) => {
+    if (tokens.refresh_token) {
+      setCalendarRefreshToken(email, tokens.refresh_token)
+      log.info(`[Calendar] Persisted rotated refresh token for ${email}`)
+    }
+  })
+
   return client
 }
 
@@ -245,7 +275,20 @@ export async function fetchEvents(
     const events = response.data.items ?? []
     return events.map((event) => convertEvent(event, email)).filter(Boolean) as CalendarEventInfo[]
   } catch (err) {
-    log.error(`[Calendar] Failed to fetch events for ${email}:`, err)
+    // Google returns invalid_grant when the refresh token has been revoked
+    // (typical causes: user revoked at myaccount.google.com/permissions, token
+    // aged past 6 months of inactivity, or password changed). Mark the account
+    // so the UI can surface "reconnect needed" instead of silently retrying.
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('invalid_grant')) {
+      deadRefreshTokens.add(email)
+      log.error(
+        `[Calendar] Refresh token rejected for ${email} (invalid_grant) — ` +
+          `account needs to be reconnected in Settings`
+      )
+    } else {
+      log.error(`[Calendar] Failed to fetch events for ${email}:`, err)
+    }
     return []
   }
 }

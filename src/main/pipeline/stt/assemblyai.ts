@@ -42,9 +42,10 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
   private config: SttProviderConfig
   private micSession: AssemblyAISession | null = null
   private sysSession: AssemblyAISession | null = null
-  private resultCallbacks: SttResultCallback[] = []
-  private errorCallbacks: SttErrorCallback[] = []
-  private closeCallbacks: (() => void)[] = []
+  // Single-slot callbacks — see DeepgramStreamingProvider for rationale.
+  private resultCallback: SttResultCallback | null = null
+  private errorCallback: SttErrorCallback | null = null
+  private closeCallback: (() => void) | null = null
 
   constructor(config: SttProviderConfig) {
     this.config = config
@@ -118,7 +119,7 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
           // V3 Error
           if (event.error) {
             log.error(`[AssemblyAI] ${label} error: ${event.error}`)
-            for (const cb of this.errorCallbacks) cb(new Error(event.error))
+            this.errorCallback?.(new Error(event.error))
             return
           }
 
@@ -131,7 +132,7 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
 
       ws.on('error', (err: Error) => {
         log.error(`[AssemblyAI] ${label} WebSocket error:`, err.message)
-        for (const cb of this.errorCallbacks) cb(err)
+        this.errorCallback?.(err)
         if (!session.connected) {
           clearTimeout(timeout)
           reject(new Error(`AssemblyAI ${label} connection failed: ${err.message}`))
@@ -143,7 +144,7 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
         session.connected = false
         const otherSession = channelIndex === 0 ? this.sysSession : this.micSession
         if (!otherSession?.connected) {
-          for (const cb of this.closeCallbacks) cb()
+          this.closeCallback?.()
         }
       })
     })
@@ -204,15 +205,15 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
   }
 
   onResult(callback: SttResultCallback): void {
-    this.resultCallbacks.push(callback)
+    this.resultCallback = callback
   }
 
   onError(callback: SttErrorCallback): void {
-    this.errorCallbacks.push(callback)
+    this.errorCallback = callback
   }
 
   onClose(callback: () => void): void {
-    this.closeCallbacks.push(callback)
+    this.closeCallback = callback
   }
 
   /**
@@ -261,7 +262,7 @@ export class AssemblyAIStreamingProvider implements StreamingSttProvider {
         `${isFinal ? 'FINAL' : 'partial'}: "${event.transcript.slice(0, 80)}${event.transcript.length > 80 ? '...' : ''}"`
     )
 
-    for (const cb of this.resultCallbacks) cb(result)
+    this.resultCallback?.(result)
   }
 }
 

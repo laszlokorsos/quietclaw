@@ -50,6 +50,10 @@ export interface QuietClawAPI {
     hasAnthropicKey: () => Promise<boolean>
     setDeepgramKey: (key: string) => Promise<boolean>
     setAnthropicKey: (key: string) => Promise<boolean>
+    /** Validate a Deepgram key against Deepgram's API. Returns true if the key authorizes successfully. */
+    validateDeepgramKey: (key: string) => Promise<{ valid: boolean; error?: string }>
+    /** Validate an Anthropic key against the Anthropic API. */
+    validateAnthropicKey: (key: string) => Promise<{ valid: boolean; error?: string }>
   }
   meetings: {
     list: (limit?: number, offset?: number) => Promise<unknown[]>
@@ -61,6 +65,7 @@ export interface QuietClawAPI {
     actions: (id: string) => Promise<unknown>
     summarize: (id: string) => Promise<{ summary: unknown; actions: unknown[] }>
     delete: (id: string) => Promise<boolean>
+    remapSpeakers: (id: string, mapping: Record<string, string>) => Promise<unknown>
     resetSpeakers: (id: string) => Promise<unknown>
   }
   recovery: {
@@ -110,7 +115,9 @@ const api: QuietClawAPI = {
     hasDeepgramKey: () => ipcRenderer.invoke('secrets:hasDeepgramKey'),
     hasAnthropicKey: () => ipcRenderer.invoke('secrets:hasAnthropicKey'),
     setDeepgramKey: (key: string) => ipcRenderer.invoke('secrets:setDeepgramKey', key),
-    setAnthropicKey: (key: string) => ipcRenderer.invoke('secrets:setAnthropicKey', key)
+    setAnthropicKey: (key: string) => ipcRenderer.invoke('secrets:setAnthropicKey', key),
+    validateDeepgramKey: (key: string) => ipcRenderer.invoke('secrets:validateDeepgramKey', key),
+    validateAnthropicKey: (key: string) => ipcRenderer.invoke('secrets:validateAnthropicKey', key)
   },
   meetings: {
     list: (limit?: number, offset?: number) => ipcRenderer.invoke('meetings:list', limit, offset),

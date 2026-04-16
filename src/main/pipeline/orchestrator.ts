@@ -137,15 +137,21 @@ export class PipelineOrchestrator {
    *
    * Sets up the STT provider, starts audio capture, and begins
    * streaming audio to Deepgram.
+   *
+   * `userName` is optional — when omitted, the orchestrator resolves it from
+   * the matched calendar event's self-attendee, then from `config.general.user_name`,
+   * then from `$USER`, then falls back to 'Me'. Callers should omit this
+   * unless they have a specific reason to override.
    */
-  async startRecording(userName: string): Promise<void> {
+  async startRecording(userName?: string): Promise<void> {
     if (this.state !== 'idle' && this.state !== 'error') {
       throw new Error(`Cannot start recording: state is "${this.state}"`)
     }
 
     const config = loadConfig()
-    const apiKey = getDeepgramApiKey()
-    if (!apiKey) {
+    // Fail fast if the primary STT key is missing — avoids a wasted calendar
+    // sync + permission prompt for a session that can't proceed.
+    if (!getDeepgramApiKey()) {
       const err = new Error(
         'Deepgram API key not configured. Set DEEPGRAM_API_KEY env var or add it in Settings.'
       )
@@ -195,66 +201,31 @@ export class PipelineOrchestrator {
       log.warn('[Pipeline] Calendar sync/match failed (continuing without):', err)
     }
 
+    // Resolve the user's display name: calendar self-attendee is the best
+    // source (it's what Google knows them by), then config, then $USER, then 'Me'.
+    // Previously callers hardcoded 'Me' everywhere — every auto-recording looked
+    // like "Me: …" instead of the person's actual name.
+    const resolvedUserName = this.resolveUserName(userName, this.calendarMatch, config)
+
     // Initialize speaker identifier with calendar attendees + tuning config
     this.speakerIdentifier = new SpeakerIdentifier({
-      userName,
+      userName: resolvedUserName,
       attendees: attendees.length > 0 ? attendees : undefined,
       bleedTimeWindowSec: config.tuning.bleed_time_window_sec,
       bleedSimilarityThreshold: config.tuning.bleed_similarity_threshold,
       bleedMinWords: config.tuning.bleed_min_words
     })
 
-    const sampleRate = config.audio.sample_rate
-
-    // Initialize STT provider (Deepgram primary, AssemblyAI fallback)
-    // Each provider manages two separate mono connections internally
-    // (one for mic, one for system audio — matching Granola's approach)
-    this.sttProvider = new DeepgramStreamingProvider({
-      apiKey,
-      model: config.stt.deepgram.model,
-      language: config.stt.deepgram.language,
-      diarize: config.stt.deepgram.diarize,
-      sampleRate,
-      channels: 1, // Each connection is mono; provider manages two internally
-      utteranceEndMs: config.tuning.deepgram_utterance_end_ms,
-      endpointingMs: config.tuning.deepgram_endpointing_ms
-    })
-
-    this.setupSttCallbacks()
-
-    // Connect — try Deepgram first, fall back to AssemblyAI
+    // Build and connect the STT provider (Deepgram primary, AssemblyAI fallback).
+    // Extracted so the resume handler can rebuild from scratch after sleep —
+    // reconnecting in place was unreliable (see orchestrator.ts history).
     try {
-      await this.sttProvider.connect()
-    } catch (deepgramErr) {
-      log.warn('[Pipeline] Deepgram connection failed, trying AssemblyAI fallback:', deepgramErr)
-
-      const assemblyKey = getAssemblyAIApiKey()
-      if (assemblyKey) {
-        this.sttProvider = new AssemblyAIStreamingProvider({
-          apiKey: assemblyKey,
-          model: 'universal',
-          language: config.stt.deepgram.language,
-          diarize: false, // AssemblyAI real-time doesn't support diarization
-          sampleRate,
-          channels: 1 // Each connection is mono
-        })
-        this.setupSttCallbacks()
-
-        try {
-          await this.sttProvider.connect()
-          log.info('[Pipeline] Connected to AssemblyAI fallback')
-        } catch (assemblyErr) {
-          log.error('[Pipeline] AssemblyAI fallback also failed:', assemblyErr)
-          this.cleanup()
-          this.setState('idle')
-          throw deepgramErr // Throw original error
-        }
-      } else {
-        log.error('[Pipeline] No AssemblyAI key configured for fallback')
-        this.cleanup()
-        this.setState('idle')
-        throw deepgramErr
-      }
+      this.sttProvider = await this.buildAndConnectStt()
+      this.setupSttCallbacks()
+    } catch (err) {
+      this.cleanup()
+      this.setState('idle')
+      throw err
     }
 
     // Set up audio capture callback — buffer chunks per channel
@@ -271,11 +242,12 @@ export class PipelineOrchestrator {
       this.flushAudioBuffers()
     }, config.audio.buffer_flush_interval_ms)
 
-    // Start audio capture with echo cancellation (matches Granola's approach:
-    // Apple Voice Processing IO cancels speaker bleed from mic using system
-    // audio output as reference signal)
+    // Start audio capture with echo cancellation (Apple Voice Processing IO
+    // cancels speaker bleed from mic using system audio output as a reference).
+    // VPIO downsamples the mic to 16 kHz internally — the orchestrator now
+    // matches sample rates to what VPIO actually delivers (see Phase A).
     await this.audioCapture.startCapture({
-      sampleRate,
+      sampleRate: config.audio.sample_rate,
       captureSystemAudio: true,
       captureMicrophone: true,
       enableEchoCancellation: config.audio.echo_cancellation,
@@ -283,7 +255,10 @@ export class PipelineOrchestrator {
       disableEchoCancellationOnHeadphones: config.audio.disable_echo_cancellation_on_headphones
     })
 
-    // Handle sleep/wake — reconnect STT after system resume
+    // Handle sleep/wake — rebuild STT from scratch after system resume.
+    // In-place reconnect was broken: DeepgramStreamingProvider.connect() early-exits
+    // if either channel reports connected, so a partial-failure state (one dead socket)
+    // never actually reconnected. Tear down and rebuild is simpler and correct.
     this.suspendHandler = () => {
       if (this.state !== 'recording') return
       log.warn('[Pipeline] System suspending — flushing audio buffers')
@@ -295,19 +270,9 @@ export class PipelineOrchestrator {
       if (this.state !== 'recording') return
       const duration = this.suspendedAt ? (Date.now() - this.suspendedAt) / 1000 : 0
       this.suspendedAt = null
-      log.warn(`[Pipeline] System resumed after ${duration.toFixed(0)}s — reconnecting STT`)
-
-      if (this.sttProvider && !this.sttProvider.isConnected()) {
-        this.sttProvider.connect()
-          .then(() => {
-            this.setupSttCallbacks()
-            log.info('[Pipeline] STT reconnected after resume')
-          })
-          .catch((err) => {
-            log.error('[Pipeline] Failed to reconnect STT after resume:', err)
-            this.events.onError?.(err instanceof Error ? err : new Error(String(err)))
-          })
-      }
+      log.warn(`[Pipeline] System resumed after ${duration.toFixed(0)}s — rebuilding STT`)
+      // Fire-and-forget: rebuildStt logs/reports errors internally.
+      void this.rebuildSttAfterResume()
     }
 
     powerMonitor.on('suspend', this.suspendHandler)
@@ -491,6 +456,116 @@ export class PipelineOrchestrator {
     this.setState('idle')
 
     return { metadata, transcript }
+  }
+
+  /**
+   * Resolve the user's display name for this session. Priority:
+   *   1. Explicit argument (kept for testability / overrides)
+   *   2. Calendar self-attendee (what the other participants see)
+   *   3. `config.general.user_name` (set by the user in Settings)
+   *   4. `$USER` environment variable (dev fallback)
+   *   5. Literal 'Me' (last resort)
+   */
+  private resolveUserName(
+    explicit: string | undefined,
+    calendarMatch: MatchResult | null,
+    config: ReturnType<typeof loadConfig>
+  ): string {
+    if (explicit && explicit.trim() && explicit.trim() !== 'Me') return explicit.trim()
+    const self = calendarMatch?.event.attendees.find((a) => a.self)
+    if (self?.name && self.name.trim()) return self.name.trim()
+    if (config.general.user_name && config.general.user_name.trim()) {
+      return config.general.user_name.trim()
+    }
+    if (process.env.USER && process.env.USER.trim()) return process.env.USER.trim()
+    return 'Me'
+  }
+
+  /**
+   * Build a fully-connected STT provider. Tries Deepgram, falls back to
+   * AssemblyAI if Deepgram connect fails and an AssemblyAI key is configured.
+   * Throws if neither can connect.
+   */
+  private async buildAndConnectStt(): Promise<StreamingSttProvider> {
+    const config = loadConfig()
+    const apiKey = getDeepgramApiKey()
+    if (!apiKey) {
+      throw new Error(
+        'Deepgram API key not configured. Set DEEPGRAM_API_KEY env var or add it in Settings.'
+      )
+    }
+
+    const sampleRate = config.audio.sample_rate
+
+    const deepgram: StreamingSttProvider = new DeepgramStreamingProvider({
+      apiKey,
+      model: config.stt.deepgram.model,
+      language: config.stt.deepgram.language,
+      diarize: config.stt.deepgram.diarize,
+      sampleRate,
+      channels: 1,
+      utteranceEndMs: config.tuning.deepgram_utterance_end_ms,
+      endpointingMs: config.tuning.deepgram_endpointing_ms
+    })
+
+    try {
+      await deepgram.connect()
+      return deepgram
+    } catch (deepgramErr) {
+      log.warn('[Pipeline] Deepgram connection failed, trying AssemblyAI fallback:', deepgramErr)
+
+      const assemblyKey = getAssemblyAIApiKey()
+      if (!assemblyKey) {
+        log.error('[Pipeline] No AssemblyAI key configured for fallback')
+        throw deepgramErr
+      }
+
+      const assembly: StreamingSttProvider = new AssemblyAIStreamingProvider({
+        apiKey: assemblyKey,
+        model: 'universal',
+        language: config.stt.deepgram.language,
+        diarize: false,
+        sampleRate,
+        channels: 1
+      })
+
+      try {
+        await assembly.connect()
+        log.info('[Pipeline] Connected to AssemblyAI fallback')
+        return assembly
+      } catch (assemblyErr) {
+        log.error('[Pipeline] AssemblyAI fallback also failed:', assemblyErr)
+        throw deepgramErr
+      }
+    }
+  }
+
+  /**
+   * After system resume, dispose the stale provider and build a fresh one.
+   * Buffered audio that arrived between resume and the new connection being
+   * ready is held in micBuffer/sysBuffer and flushed to the new provider on
+   * the next flush tick.
+   */
+  private async rebuildSttAfterResume(): Promise<void> {
+    if (this.state !== 'recording') return
+
+    if (this.sttProvider) {
+      try {
+        await this.sttProvider.disconnect()
+      } catch (err) {
+        log.warn('[Pipeline] Error disconnecting stale provider on resume:', err)
+      }
+      this.sttProvider = null
+    }
+
+    try {
+      this.sttProvider = await this.buildAndConnectStt()
+      this.setupSttCallbacks()
+      log.info('[Pipeline] STT rebuilt after resume')
+    } catch (err) {
+      log.error('[Pipeline] Failed to rebuild STT after resume:', err)
+      this.events.onError?.(err instanceof Error ? err : new Error(String(err)))
+    }
   }
 
   /**

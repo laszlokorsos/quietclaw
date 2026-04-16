@@ -316,7 +316,18 @@ export default function MeetingDetail({
           </div>
           <div className="space-y-4">
             {transcript.segments.map((seg, i) => (
-              <div key={i} className="group relative">
+              <div
+                key={i}
+                className="group relative"
+                // Browsers lazily render segments off-screen when content-visibility:auto
+                // is set — this keeps a 90-minute (500+ segment) meeting scrollable without
+                // virtualizing the whole list. `contain-intrinsic-size` gives a reserved
+                // height hint so scroll position stays stable as items materialize.
+                style={{
+                  contentVisibility: 'auto',
+                  containIntrinsicSize: '0 60px'
+                } as React.CSSProperties}
+              >
                 <div className="flex items-baseline gap-2 mb-0.5">
                   <span className={`text-xs font-medium ${
                     seg.source === 'microphone' ? 'text-accent' : 'text-speaker-remote'

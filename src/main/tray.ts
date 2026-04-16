@@ -88,7 +88,7 @@ export function setupTray(
             }
           } else {
             try {
-              await orchestrator.startRecording('Me')
+              await orchestrator.startRecording()
               log.info('[Tray] Recording started')
             } catch (err) {
               log.error('[Tray] Failed to start recording:', err)

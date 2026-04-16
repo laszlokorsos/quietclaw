@@ -10,7 +10,11 @@ markdown_output = true             # Generate human-readable .md files alongside
 launch_at_login = true             # Start QuietClaw automatically when you log in
 
 [audio]
-sample_rate = 48000                # Hz — Deepgram nova-3 accepts up to 48kHz natively
+sample_rate = 16000                # Hz — matches what Apple Voice Processing (VPIO) actually
+                                   # delivers on the mic. VPIO reconfigures the input node for
+                                   # speech bandwidth; requesting 48 kHz and upsampling only wastes
+                                   # cycles and gives Deepgram zero-padded spectrum. Deepgram
+                                   # nova-3 handles 16 kHz natively.
 buffer_flush_interval_ms = 200     # How often buffered audio is flushed to STT (ms)
 echo_cancellation = true           # Apple Voice Processing echo cancellation on mic input
 agc = true                         # Automatic gain control (when echo cancellation is on)

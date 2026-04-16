@@ -11,12 +11,26 @@
  *   quietclaw:calendar:{email}:refresh_token
  */
 
-import { safeStorage } from 'electron'
+import { app, safeStorage } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { randomBytes } from 'node:crypto'
 import log from 'electron-log/main'
+
+/**
+ * Read an env-var fallback for a secret, but ONLY in dev.
+ *
+ * In a packaged (production) app, a stray env var (exported from a shell
+ * profile, inherited by `launchctl`, etc.) would otherwise silently shadow
+ * the user's safeStorage-encrypted key — any previous rotation would be
+ * ignored without warning. Prefer the encrypted store in production.
+ */
+function devEnvFallback(name: string): string | null {
+  if (app.isPackaged) return null
+  const val = process.env[name]
+  return val && val.length > 0 ? val : null
+}
 
 const SECRETS_DIR = path.join(os.homedir(), '.quietclaw', 'secrets')
 
@@ -112,16 +126,9 @@ export function listSecretKeys(): string[] {
 // ---------------------------------------------------------------------------
 
 export function getDeepgramApiKey(): string | null {
-  // Prefer safeStorage (user-configured) over env var
-  const stored = getSecret('quietclaw:deepgram:api_key')
-  if (stored) {
-    return stored
-  }
-  // Fall back to env var for dev/testing
-  if (process.env.DEEPGRAM_API_KEY) {
-    return process.env.DEEPGRAM_API_KEY
-  }
-  return null
+  // Prefer safeStorage (user-configured). Env-var fallback is dev-only; see
+  // devEnvFallback for why production must ignore env vars.
+  return getSecret('quietclaw:deepgram:api_key') ?? devEnvFallback('DEEPGRAM_API_KEY')
 }
 
 export function setDeepgramApiKey(key: string): void {
@@ -129,14 +136,7 @@ export function setDeepgramApiKey(key: string): void {
 }
 
 export function getAnthropicApiKey(): string | null {
-  const stored = getSecret('quietclaw:anthropic:api_key')
-  if (stored) {
-    return stored
-  }
-  if (process.env.ANTHROPIC_API_KEY) {
-    return process.env.ANTHROPIC_API_KEY
-  }
-  return null
+  return getSecret('quietclaw:anthropic:api_key') ?? devEnvFallback('ANTHROPIC_API_KEY')
 }
 
 export function setAnthropicApiKey(key: string): void {
@@ -144,10 +144,7 @@ export function setAnthropicApiKey(key: string): void {
 }
 
 export function getAssemblyAIApiKey(): string | null {
-  const stored = getSecret('quietclaw:assemblyai:api_key')
-  if (stored) return stored
-  if (process.env.ASSEMBLYAI_API_KEY) return process.env.ASSEMBLYAI_API_KEY
-  return null
+  return getSecret('quietclaw:assemblyai:api_key') ?? devEnvFallback('ASSEMBLYAI_API_KEY')
 }
 
 export function setAssemblyAIApiKey(key: string): void {

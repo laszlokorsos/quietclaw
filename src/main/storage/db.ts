@@ -129,13 +129,19 @@ export function initDatabase(): void {
     // Ignore migration errors — table may not exist yet
   }
 
-  // Ensure FTS has entries for all meetings
+  // Ensure FTS has entries for all meetings. Wrap the wipe-and-reindex in a
+  // single transaction so a crash mid-rebuild doesn't leave search permanently
+  // empty — previously the DELETE committed first, and a crash before reindex
+  // left meetings_fts holding zero rows with no recovery path.
   const ftsCount = (db.prepare('SELECT COUNT(*) as c FROM meetings_fts').get() as { c: number }).c
   const meetingCount = (db.prepare('SELECT COUNT(*) as c FROM meetings').get() as { c: number }).c
   if (meetingCount > ftsCount) {
     log.info(`[DB] FTS out of sync (${ftsCount} indexed / ${meetingCount} meetings) — re-indexing`)
-    db.exec('DELETE FROM meetings_fts')
-    reindexFts(db)
+    const rebuildFts = db.transaction(() => {
+      db.exec('DELETE FROM meetings_fts')
+      reindexFts(db)
+    })
+    rebuildFts()
   }
 
   // Migrate: recompute date column from start_time (UTC → local timezone fix)

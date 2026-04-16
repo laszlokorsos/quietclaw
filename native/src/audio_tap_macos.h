@@ -76,6 +76,12 @@ private:
     void* scStream_;
     void* scDelegate_;
     void* audioEngine_;
+    // AVAudioConverter for the mic path — lazily created in the tap block when
+    // VPIO's realized rate differs from the target. The system path's converter
+    // lives on SCStreamDelegateImpl itself (stored opaquely to keep this header
+    // pure C++).
+    void* micConverter_{nullptr};
+    uint32_t micConverterSrcRate_{0};
 
     // Temp file for crash recovery
     std::string tempFilePath_;

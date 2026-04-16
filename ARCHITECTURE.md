@@ -53,9 +53,15 @@ This also gives us:
 2. **Provider flexibility.** AssemblyAI's real-time API doesn't support multichannel. Two mono connections work with any provider.
 3. **Selective diarization.** No point running diarization on a single-speaker mic channel — we skip it entirely, saving compute and avoiding false speaker splits.
 
-### Sample Rate: 48kHz
+### Sample Rate: 16kHz (matched to VPIO's realized rate)
 
-Most STT tutorials recommend 16kHz because that's what telephony uses and older models were trained on. But Deepgram's nova-3 model accepts up to 48kHz natively — and 48kHz is what macOS Core Audio delivers by default. Downsampling to 16kHz throws away information that the model can actually use. So we don't downsample. The trade-off is ~3x more bandwidth (~192 KB/s for two mono streams vs ~64 KB/s at 16kHz), which is negligible for a desktop app on any modern connection.
+The initial design ran everything at 48 kHz, figuring that Deepgram nova-3 handles 48 kHz natively and Core Audio delivers 48 kHz by default, so "we don't downsample" felt like a free win. It turned out not to be true for the mic path.
+
+Apple's Voice Processing I/O unit — which we enable to get industrial-grade echo cancellation — reconfigures the input node to its internal voice-processing bandwidth (16 kHz on the devices we tested). If we *request* 48 kHz from Deepgram, we have to upsample VPIO's 16 kHz output. Linear-interp upsampling adds no information above the source Nyquist; we'd just be feeding Deepgram zero-padded spectrum. So we match the transport rate to what VPIO actually delivers.
+
+16 kHz is the right bandwidth for speech after AEC anyway — it covers up to 8 kHz, well above the roughly 4 kHz fundamentals-and-formants range that carries phonetic information. The system audio path (which doesn't go through VPIO) also runs at 16 kHz for transport simplicity; ScreenCaptureKit honors the requested rate.
+
+The architectural lesson: don't claim a fidelity win unless every link in the chain actually delivers it.
 
 ### Buffer Flush Cycle
 

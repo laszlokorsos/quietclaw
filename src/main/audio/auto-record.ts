@@ -181,7 +181,7 @@ async function autoStart(event: MeetingDetectionEvent): Promise<void> {
   notification.show()
 
   try {
-    await activeOrchestrator.startRecording('Me')
+    await activeOrchestrator.startRecording()
     log.info(`[AutoRecord] Recording started for "${eventTitle}"`)
   } catch (err) {
     log.error('[AutoRecord] Failed to start recording:', err)

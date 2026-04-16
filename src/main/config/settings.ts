@@ -96,6 +96,8 @@ export interface AppConfig {
     onboarding_complete: boolean
     theme: 'system' | 'light' | 'dark'
     launch_at_login: boolean
+    /** Display name used for the user's mic-channel segments. Empty = auto-detect. */
+    user_name: string
   }
   audio: AudioConfig
   tuning: TuningConfig
@@ -127,10 +129,14 @@ function getDefaults(): AppConfig {
       markdown_output: true,
       onboarding_complete: false,
       theme: 'dark' as const,
-      launch_at_login: true
+      launch_at_login: true,
+      user_name: ''
     },
     audio: {
-      sample_rate: 48000,
+      // 16 kHz matches what Apple Voice Processing actually delivers on the mic.
+      // Requesting 48 kHz forces a linear-interp upsample of VPIO's 16 kHz output,
+      // which feeds Deepgram zero-padded spectrum — worse for STT, not better.
+      sample_rate: 16000,
       buffer_flush_interval_ms: 200,
       echo_cancellation: true,
       agc: true,

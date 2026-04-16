@@ -61,8 +61,13 @@ function ensureMeetingDir(meetingDir: string): void {
 /**
  * Write all meeting files to disk.
  *
- * Creates the meeting directory and writes metadata.json,
- * transcript.json, and optionally transcript.md.
+ * Order matters for crash safety: transcript files are written FIRST, and
+ * metadata.json LAST. The presence of metadata.json is the commit marker —
+ * any meeting directory without it is either in-progress or left over from a
+ * crash, and `cleanupOrphanedMeetingDirs()` at startup will remove it.
+ *
+ * Previously metadata.json was written first, which meant a crash between
+ * writes left a meeting that showed up in the UI with no transcript content.
  */
 export function writeMeetingFiles(
   metadata: MeetingMetadata,
@@ -71,12 +76,7 @@ export function writeMeetingFiles(
   const meetingDir = getMeetingDir(metadata.startTime, metadata.slug)
   ensureMeetingDir(meetingDir)
 
-  // metadata.json
-  const metadataPath = path.join(meetingDir, 'metadata.json')
-  atomicWrite(metadataPath, JSON.stringify(metadata, null, 2))
-  log.info(`[Storage] Wrote ${metadataPath}`)
-
-  // transcript.json
+  // transcript.json (first — content before commit marker)
   const transcriptPath = path.join(meetingDir, 'transcript.json')
   atomicWrite(transcriptPath, JSON.stringify(transcript, null, 2))
   log.info(`[Storage] Wrote ${transcriptPath}`)
@@ -89,10 +89,56 @@ export function writeMeetingFiles(
     log.info(`[Storage] Wrote ${mdPath}`)
   }
 
+  // metadata.json — LAST. Its presence is the "this meeting is committed" marker.
+  const metadataPath = path.join(meetingDir, 'metadata.json')
+  atomicWrite(metadataPath, JSON.stringify(metadata, null, 2))
+  log.info(`[Storage] Wrote ${metadataPath}`)
+
   // Update daily index
   updateDailyIndex(path.dirname(meetingDir))
 
   return meetingDir
+}
+
+/**
+ * Scan the meetings data directory for orphaned meeting folders — directories
+ * that contain transcript files but no metadata.json. These are always the
+ * result of a crash between writes (metadata is written last as the commit
+ * marker). Removing them keeps the UI consistent with what's actually indexed.
+ *
+ * Returns the number of directories cleaned up.
+ */
+export function cleanupOrphanedMeetingDirs(): number {
+  const config = loadConfig()
+  const root = config.general.data_dir
+  if (!fs.existsSync(root)) return 0
+
+  let removed = 0
+  const dateDirs = fs.readdirSync(root, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+
+  for (const dateDir of dateDirs) {
+    const datePath = path.join(root, dateDir.name)
+    const slugDirs = fs.readdirSync(datePath, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+
+    for (const slug of slugDirs) {
+      const meetingDir = path.join(datePath, slug.name)
+      const hasMetadata = fs.existsSync(path.join(meetingDir, 'metadata.json'))
+      if (hasMetadata) continue
+
+      // Orphaned — no commit marker. Delete the directory and its contents.
+      try {
+        fs.rmSync(meetingDir, { recursive: true, force: true })
+        log.warn(`[Storage] Cleaned up orphaned meeting dir: ${meetingDir}`)
+        removed++
+      } catch (err) {
+        log.error(`[Storage] Failed to clean up ${meetingDir}:`, err)
+      }
+    }
+  }
+
+  return removed
 }
 
 /**

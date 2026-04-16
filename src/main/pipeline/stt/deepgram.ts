@@ -40,9 +40,11 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
   private config: SttProviderConfig
   private micConn: DeepgramConnection | null = null
   private sysConn: DeepgramConnection | null = null
-  private resultCallbacks: SttResultCallback[] = []
-  private errorCallbacks: SttErrorCallback[] = []
-  private closeCallbacks: (() => void)[] = []
+  // Single-slot callbacks — the orchestrator is the only subscriber, and
+  // appending would have silently duplicated emissions across reconnects.
+  private resultCallback: SttResultCallback | null = null
+  private errorCallback: SttErrorCallback | null = null
+  private closeCallback: (() => void) | null = null
 
   constructor(config: SttProviderConfig) {
     this.config = config
@@ -125,7 +127,7 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
 
       ws.on('error', (err: Error) => {
         log.error(`[Deepgram] ${label} WebSocket error:`, err.message)
-        for (const cb of this.errorCallbacks) cb(err)
+        this.errorCallback?.(err)
         if (!conn.connected) {
           clearTimeout(timeout)
           reject(new Error(`Deepgram ${label} connection failed: ${err.message}`))
@@ -139,7 +141,7 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
           const msg = `Deepgram ${label} HTTP ${res.statusCode}: ${body.slice(0, 200)}`
           log.error('[Deepgram]', msg)
           const err = new Error(msg)
-          for (const cb of this.errorCallbacks) cb(err)
+          this.errorCallback?.(err)
           if (!conn.connected) {
             clearTimeout(timeout)
             reject(err)
@@ -150,10 +152,10 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
       ws.on('close', (code: number, reason: Buffer) => {
         log.info(`[Deepgram] ${label} WebSocket closed — code=${code}, reason=${reason.toString()}`)
         conn.connected = false
-        // Fire close callbacks only when both connections are down
+        // Fire close callback only when both connections are down
         const otherConn = channelIndex === 0 ? this.sysConn : this.micConn
         if (!otherConn?.connected) {
-          for (const cb of this.closeCallbacks) cb()
+          this.closeCallback?.()
         }
       })
     })
@@ -213,15 +215,15 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
   }
 
   onResult(callback: SttResultCallback): void {
-    this.resultCallbacks.push(callback)
+    this.resultCallback = callback
   }
 
   onError(callback: SttErrorCallback): void {
-    this.errorCallbacks.push(callback)
+    this.errorCallback = callback
   }
 
   onClose(callback: () => void): void {
-    this.closeCallbacks.push(callback)
+    this.closeCallback = callback
   }
 
   private handleMessage(event: DeepgramEvent, channelIndex: number, label: string): void {
@@ -248,38 +250,90 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
     channelIndex: number,
     label: string
   ): void {
-    const alt = event.channel?.alternatives?.[0]
-    if (!alt || !alt.transcript) return
+    const results = parseDeepgramTranscriptEvent(event, channelIndex)
+    if (results.length === 0) return
 
-    const words = (alt.words ?? []).map((w: DeepgramWord) => ({
-      word: w.word,
-      start: w.start,
-      end: w.end,
-      confidence: w.confidence,
-      speaker: w.speaker,
-      punctuated_word: w.punctuated_word
-    }))
+    if (results.length === 1) {
+      log.info(
+        `[Deepgram] ${label} (ch${channelIndex}) ` +
+          `speaker=${results[0].speakerId}: "${results[0].transcript.slice(0, 80)}${results[0].transcript.length > 80 ? '...' : ''}"`
+      )
+    } else {
+      log.info(
+        `[Deepgram] ${label} (ch${channelIndex}) multi-speaker result: ` +
+          `${results.length} speakers`
+      )
+    }
 
-    const speakerId = words[0]?.speaker ?? 0
+    for (const r of results) this.resultCallback?.(r)
+  }
+}
 
-    const result: SttResult = {
+/**
+ * Parse a Deepgram Results event into zero or more SttResults.
+ *
+ * System-channel (`channelIndex !== 0`) results that contain words from
+ * multiple diarized speakers are split into one SttResult per speaker run,
+ * so that a quick turn-take inside a single Deepgram frame preserves
+ * diarization. Mic-channel results and single-speaker system results pass
+ * through unchanged.
+ *
+ * Exported for unit testing.
+ */
+export function parseDeepgramTranscriptEvent(
+  event: DeepgramTranscriptEvent,
+  channelIndex: number
+): SttResult[] {
+  const alt = event.channel?.alternatives?.[0]
+  if (!alt || !alt.transcript) return []
+
+  const rawWords = (alt.words ?? []).map((w: DeepgramWord) => ({
+    word: w.word,
+    start: w.start,
+    end: w.end,
+    confidence: w.confidence,
+    speaker: w.speaker,
+    punctuated_word: w.punctuated_word
+  }))
+
+  const isFinal = event.is_final ?? true
+
+  // Only split on FINAL results. Interim results for the same utterance share
+  // `event.start`, which the orchestrator uses as a dedup key. If we split on
+  // interim, speaker-run boundaries wobble as Deepgram refines word timing,
+  // producing new keys per refinement and leaving orphan ghost segments when
+  // the final arrives with different boundaries. Splitting only on final is
+  // enough for correct transcripts (the interim's misattribution is visible
+  // for at most ~500 ms and is corrected as soon as the final lands).
+  const hasMultipleSpeakers =
+    channelIndex !== 0 &&
+    isFinal &&
+    rawWords.length > 1 &&
+    rawWords.some((w) => (w.speaker ?? 0) !== (rawWords[0].speaker ?? 0))
+
+  if (!hasMultipleSpeakers) {
+    return [{
       channelIndex,
       transcript: alt.transcript,
       start: event.start,
       duration: event.duration,
-      isFinal: event.is_final ?? true,
+      isFinal,
       confidence: alt.confidence,
-      words,
-      speakerId
-    }
-
-    log.info(
-      `[Deepgram] ${label} (ch${channelIndex}) ` +
-        `speaker=${speakerId}: "${alt.transcript.slice(0, 80)}${alt.transcript.length > 80 ? '...' : ''}"`
-    )
-
-    for (const cb of this.resultCallbacks) cb(result)
+      words: rawWords,
+      speakerId: rawWords[0]?.speaker ?? 0
+    }]
   }
+
+  return groupWordsBySpeaker(rawWords).map((group) => ({
+    channelIndex,
+    transcript: group.text,
+    start: group.start,
+    duration: group.end - group.start,
+    isFinal,
+    confidence: group.confidence,
+    words: group.words,
+    speakerId: group.speakerId
+  }))
 }
 
 // ---------------------------------------------------------------------------

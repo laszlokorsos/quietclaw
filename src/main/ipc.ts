@@ -116,7 +116,7 @@ export function setupIpcHandlers(
 
   ipcMain.handle('pipeline:startRecording', async () => {
     if (!orchestrator) throw new Error('Pipeline not available')
-    await orchestrator.startRecording('Me')
+    await orchestrator.startRecording()
     log.info('[IPC] Recording started from renderer')
     return true
   })
@@ -148,6 +148,58 @@ export function setupIpcHandlers(
     log.info('[IPC] Anthropic API key saved')
     return true
   })
+
+  // Key validation — called during onboarding so the user learns immediately
+  // whether a key actually works, not silently on first recording attempt.
+  ipcMain.handle(
+    'secrets:validateDeepgramKey',
+    async (_event, key: string): Promise<{ valid: boolean; error?: string }> => {
+      if (!key || typeof key !== 'string' || key.trim().length < 10) {
+        return { valid: false, error: 'Key is empty or too short' }
+      }
+      try {
+        const res = await fetch('https://api.deepgram.com/v1/projects', {
+          method: 'GET',
+          headers: { Authorization: `Token ${key.trim()}` }
+        })
+        if (res.ok) return { valid: true }
+        if (res.status === 401 || res.status === 403) {
+          return { valid: false, error: 'Deepgram rejected the key (unauthorized).' }
+        }
+        return { valid: false, error: `Deepgram returned HTTP ${res.status}.` }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { valid: false, error: `Could not reach Deepgram: ${msg}` }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'secrets:validateAnthropicKey',
+    async (_event, key: string): Promise<{ valid: boolean; error?: string }> => {
+      if (!key || typeof key !== 'string' || !key.trim().startsWith('sk-ant-')) {
+        return { valid: false, error: 'Anthropic keys start with "sk-ant-".' }
+      }
+      try {
+        // Lightweight probe: /v1/models is authenticated but cheap.
+        const res = await fetch('https://api.anthropic.com/v1/models', {
+          method: 'GET',
+          headers: {
+            'x-api-key': key.trim(),
+            'anthropic-version': '2023-06-01'
+          }
+        })
+        if (res.ok) return { valid: true }
+        if (res.status === 401 || res.status === 403) {
+          return { valid: false, error: 'Anthropic rejected the key (unauthorized).' }
+        }
+        return { valid: false, error: `Anthropic returned HTTP ${res.status}.` }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { valid: false, error: `Could not reach Anthropic: ${msg}` }
+      }
+    }
+  )
 
   // Calendar
   ipcMain.handle('calendar:accounts', () => {

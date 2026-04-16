@@ -14,7 +14,82 @@
 @interface SCStreamDelegateImpl : NSObject <SCStreamDelegate, SCStreamOutput>
 @property (nonatomic, assign) AudioTapMacOS* owner;
 @property (nonatomic, assign) uint32_t targetSampleRate;
+// Bandlimited resampler cached between callbacks. AVAudioConverter handles
+// the antialiasing filter + resampling properly; the old code used linear
+// interpolation which aliases badly on speech sibilants.
+@property (nonatomic, strong) AVAudioConverter* resampler;
+@property (nonatomic, assign) uint32_t resamplerSrcRate;
 @end
+
+// Resample a mono float32 buffer from srcRate to dstRate using the given
+// AVAudioConverter. Returns the resampled buffer as a std::vector.
+// Lazily (re)creates the converter when the source rate changes.
+static std::vector<float> ResampleMonoFloat32(
+    AVAudioConverter* __strong * converter,
+    uint32_t* cachedSrcRate,
+    const float* samples,
+    size_t sampleCount,
+    uint32_t srcRate,
+    uint32_t dstRate) {
+    if (srcRate == dstRate || sampleCount == 0) {
+        return std::vector<float>(samples, samples + sampleCount);
+    }
+
+    // (Re)build the converter when the source rate changes. VPIO and SCKit
+    // generally stabilise on one rate per session, so this path is rare.
+    if (*converter == nil || *cachedSrcRate != srcRate) {
+        AVAudioFormat* srcFmt = [[AVAudioFormat alloc]
+            initWithCommonFormat:AVAudioPCMFormatFloat32
+                      sampleRate:srcRate
+                        channels:1
+                     interleaved:NO];
+        AVAudioFormat* dstFmt = [[AVAudioFormat alloc]
+            initWithCommonFormat:AVAudioPCMFormatFloat32
+                      sampleRate:dstRate
+                        channels:1
+                     interleaved:NO];
+        *converter = [[AVAudioConverter alloc] initFromFormat:srcFmt toFormat:dstFmt];
+        *cachedSrcRate = srcRate;
+        NSLog(@"[QuietClaw] Created resampler %u Hz → %u Hz", srcRate, dstRate);
+    }
+
+    AVAudioPCMBuffer* src = [[AVAudioPCMBuffer alloc]
+        initWithPCMFormat:(*converter).inputFormat
+            frameCapacity:(AVAudioFrameCount)sampleCount];
+    src.frameLength = (AVAudioFrameCount)sampleCount;
+    memcpy(src.floatChannelData[0], samples, sampleCount * sizeof(float));
+
+    // Output capacity with a small headroom — AVAudioConverter may emit
+    // slightly more or fewer frames than the simple ratio suggests.
+    AVAudioFrameCount dstCapacity = (AVAudioFrameCount)(
+        ((uint64_t)sampleCount * dstRate + srcRate - 1) / srcRate + 32);
+    AVAudioPCMBuffer* dst = [[AVAudioPCMBuffer alloc]
+        initWithPCMFormat:(*converter).outputFormat
+            frameCapacity:dstCapacity];
+
+    __block BOOL delivered = NO;
+    NSError* err = nil;
+    AVAudioConverterOutputStatus status = [*converter
+        convertToBuffer:dst
+                  error:&err
+     withInputFromBlock:^AVAudioBuffer*(AVAudioPacketCount, AVAudioConverterInputStatus* outStatus) {
+        if (delivered) {
+            *outStatus = AVAudioConverterInputStatus_EndOfStream;
+            return nil;
+        }
+        delivered = YES;
+        *outStatus = AVAudioConverterInputStatus_HaveData;
+        return src;
+    }];
+
+    if (status == AVAudioConverterOutputStatus_Error || err != nil) {
+        NSLog(@"[QuietClaw] Resampler error: %@", err);
+        return std::vector<float>(samples, samples + sampleCount);
+    }
+
+    const float* out = dst.floatChannelData[0];
+    return std::vector<float>(out, out + dst.frameLength);
+}
 
 @implementation SCStreamDelegateImpl
 
@@ -91,24 +166,20 @@
         sampleCount = frames;
     }
 
-    // Resample if source rate differs from target
+    // Resample if source rate differs from target using AVAudioConverter
+    // (proper bandlimited resampling; the previous linear-interp approach
+    // aliased badly and smeared sibilants, hurting STT accuracy).
     uint32_t sourceSampleRate = static_cast<uint32_t>(asbd->mSampleRate);
     if (sourceSampleRate != self.targetSampleRate && sourceSampleRate > 0) {
-        float ratio = static_cast<float>(self.targetSampleRate) / static_cast<float>(sourceSampleRate);
-        size_t newCount = static_cast<size_t>(sampleCount * ratio);
-        std::vector<float> resampled(newCount);
-
-        // Linear interpolation resampling (good enough for speech)
-        for (size_t i = 0; i < newCount; i++) {
-            float srcIdx = static_cast<float>(i) / ratio;
-            size_t idx0 = static_cast<size_t>(srcIdx);
-            size_t idx1 = std::min(idx0 + 1, sampleCount - 1);
-            float frac = srcIdx - idx0;
-            resampled[i] = mono[idx0] * (1.0f - frac) + mono[idx1] * frac;
-        }
-
+        AVAudioConverter* conv = self.resampler;
+        uint32_t cachedRate = self.resamplerSrcRate;
+        std::vector<float> resampled = ResampleMonoFloat32(
+            &conv, &cachedRate, mono.data(), sampleCount,
+            sourceSampleRate, self.targetSampleRate);
+        self.resampler = conv;
+        self.resamplerSrcRate = cachedRate;
         mono = std::move(resampled);
-        sampleCount = newCount;
+        sampleCount = mono.size();
     }
 
     // Get timestamp
@@ -315,11 +386,18 @@ void AudioTapMacOS::StartMicCapture(uint32_t sampleRate, bool enableEchoCancella
         NSLog(@"[QuietClaw] Voice Processing disabled — raw mic capture");
     }
 
-    // Get the format AFTER enabling voice processing (VPIO may change the format)
+    // Get the format AFTER enabling voice processing (VPIO reconfigures the
+    // input node to its internal voice-processing bandwidth — typically 16 kHz
+    // on Apple silicon). Log the realized rate so there's a clear record that
+    // the architecture is matching VPIO rather than pretending to deliver 48 kHz.
     AVAudioFormat* inputFormat = [inputNode outputFormatForBus:0];
+    uint32_t realizedMicRate = static_cast<uint32_t>(inputFormat.sampleRate);
+    NSLog(@"[QuietClaw] VPIO realized mic rate: %u Hz (target: %u Hz)%s",
+          realizedMicRate, sampleRate,
+          realizedMicRate == sampleRate ? " — no resampling needed" : " — resampling via AVAudioConverter");
 
-    // Use a buffer size that gives ~100ms chunks
-    uint32_t bufferSize = sampleRate / 10; // 100ms
+    // Use a buffer size that gives ~100ms chunks at the input's actual rate
+    uint32_t bufferSize = realizedMicRate / 10; // 100ms
 
     [inputNode installTapOnBus:0
         bufferSize:bufferSize
@@ -329,30 +407,36 @@ void AudioTapMacOS::StartMicCapture(uint32_t sampleRate, bool enableEchoCancella
 
             const float* channelData = buffer.floatChannelData[0];
             AVAudioFrameCount frameCount = buffer.frameLength;
+            double timestamp = static_cast<double>(when.sampleTime) / realizedMicRate;
 
-            // Resample if needed
-            uint32_t srcRate = static_cast<uint32_t>(inputFormat.sampleRate);
-            if (srcRate != sampleRate && srcRate > 0) {
-                float ratio = static_cast<float>(sampleRate) / static_cast<float>(srcRate);
-                size_t newCount = static_cast<size_t>(frameCount * ratio);
-                std::vector<float> resampled(newCount);
-
-                for (size_t i = 0; i < newCount; i++) {
-                    float srcIdx = static_cast<float>(i) / ratio;
-                    size_t idx0 = static_cast<size_t>(srcIdx);
-                    size_t idx1 = std::min(idx0 + 1, static_cast<size_t>(frameCount - 1));
-                    float frac = srcIdx - idx0;
-                    resampled[i] = channelData[idx0] * (1.0f - frac) + channelData[idx1] * frac;
-                }
-
-                double timestamp = static_cast<double>(when.sampleTime) / srcRate;
-                this->OnMicrophoneAudio(resampled.data(), newCount, timestamp);
-            } else {
-                double timestamp = static_cast<double>(when.sampleTime) / srcRate;
-                // Copy to mutable buffer
+            if (realizedMicRate == sampleRate) {
+                // Rates match — no resampling. Copy into a mutable buffer to
+                // match OnMicrophoneAudio's `float*` parameter (the callee
+                // takes ownership of a fresh allocation anyway — it copies
+                // again into the ThreadSafeFunction deliverer).
                 std::vector<float> samples(channelData, channelData + frameCount);
                 this->OnMicrophoneAudio(samples.data(), frameCount, timestamp);
+                return;
             }
+
+            // Resample via cached AVAudioConverter (proper bandlimited filter,
+            // no aliasing). Storage lives on AudioTapMacOS as an opaque void*
+            // so the .h file stays pure C++.
+            AVAudioConverter* conv = (__bridge AVAudioConverter*)this->micConverter_;
+            uint32_t cachedRate = this->micConverterSrcRate_;
+            std::vector<float> resampled = ResampleMonoFloat32(
+                &conv, &cachedRate, channelData, frameCount,
+                realizedMicRate, sampleRate);
+            // Update the stored converter if the helper created/replaced it.
+            AVAudioConverter* existing = (__bridge AVAudioConverter*)this->micConverter_;
+            if (conv != existing) {
+                if (this->micConverter_) {
+                    CFRelease(this->micConverter_);
+                }
+                this->micConverter_ = (__bridge_retained void*)conv;
+            }
+            this->micConverterSrcRate_ = cachedRate;
+            this->OnMicrophoneAudio(resampled.data(), resampled.size(), timestamp);
         }];
 
     NSError* startError = nil;
@@ -390,6 +474,11 @@ void AudioTapMacOS::StopMicCapture() {
         [engine.inputNode removeTapOnBus:0];
         [engine stop];
         audioEngine_ = nullptr;
+    }
+    if (micConverter_) {
+        CFRelease(micConverter_);
+        micConverter_ = nullptr;
+        micConverterSrcRate_ = 0;
     }
 }
 

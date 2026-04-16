@@ -14,8 +14,10 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [deepgramKey, setDeepgramKey] = useState('')
   const [savingDeepgram, setSavingDeepgram] = useState(false)
   const [deepgramSaved, setDeepgramSaved] = useState(false)
+  const [deepgramError, setDeepgramError] = useState<string | null>(null)
   const [anthropicKey, setAnthropicKey] = useState('')
   const [savingAnthropic, setSavingAnthropic] = useState(false)
+  const [anthropicError, setAnthropicError] = useState<string | null>(null)
   const [connectingCalendar, setConnectingCalendar] = useState(false)
   const [calendarConnected, setCalendarConnected] = useState(false)
   const [launchAtLogin, setLaunchAtLogin] = useState(true)
@@ -75,9 +77,20 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   async function saveDeepgramKey() {
     if (!api || !deepgramKey.trim()) return
     setSavingDeepgram(true)
-    await api.secrets.setDeepgramKey(deepgramKey.trim())
-    setDeepgramSaved(true)
-    setSavingDeepgram(false)
+    setDeepgramError(null)
+    try {
+      // Validate against Deepgram before persisting — otherwise the user only
+      // learns the key is wrong at their first recording (silent failure).
+      const result = await api.secrets.validateDeepgramKey(deepgramKey.trim())
+      if (!result?.valid) {
+        setDeepgramError(result?.error ?? 'Key validation failed')
+        return
+      }
+      await api.secrets.setDeepgramKey(deepgramKey.trim())
+      setDeepgramSaved(true)
+    } finally {
+      setSavingDeepgram(false)
+    }
   }
 
   async function connectCalendar() {
@@ -96,11 +109,25 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   }
 
   async function saveAnthropicKey() {
-    if (!api || !anthropicKey.trim()) return
+    if (!api) return
+    // Empty input means "Skip" — advance without saving or validating.
+    if (!anthropicKey.trim()) {
+      goNext()
+      return
+    }
     setSavingAnthropic(true)
-    await api.secrets.setAnthropicKey(anthropicKey.trim())
-    setSavingAnthropic(false)
-    goNext()
+    setAnthropicError(null)
+    try {
+      const result = await api.secrets.validateAnthropicKey(anthropicKey.trim())
+      if (!result?.valid) {
+        setAnthropicError(result?.error ?? 'Key validation failed')
+        return
+      }
+      await api.secrets.setAnthropicKey(anthropicKey.trim())
+      goNext()
+    } finally {
+      setSavingAnthropic(false)
+    }
   }
 
   return (
@@ -230,16 +257,21 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                     type="password"
                     placeholder="Paste your Deepgram API key"
                     value={deepgramKey}
-                    onChange={(e) => setDeepgramKey(e.target.value)}
+                    onChange={(e) => { setDeepgramKey(e.target.value); setDeepgramError(null) }}
                     onKeyDown={(e) => e.key === 'Enter' && saveDeepgramKey()}
-                    className="w-full px-4 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
+                    className={`w-full px-4 py-2.5 bg-surface-secondary border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none font-mono transition-colors ${
+                      deepgramError ? 'border-red-900/70 focus:border-red-700' : 'border-border focus:border-accent'
+                    }`}
                   />
+                  {deepgramError && (
+                    <p className="text-xs text-red-400 -mt-2">{deepgramError}</p>
+                  )}
                   <button
                     onClick={saveDeepgramKey}
                     disabled={!deepgramKey.trim() || savingDeepgram}
                     className="w-full px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover disabled:opacity-40 disabled:cursor-default transition-colors"
                   >
-                    {savingDeepgram ? 'Saving...' : 'Save Key'}
+                    {savingDeepgram ? 'Checking...' : 'Save Key'}
                   </button>
                 </>
               )}
@@ -287,19 +319,24 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
               </p>
               <input
                 type="password"
-                placeholder="Paste your Anthropic API key"
+                placeholder="Paste your Anthropic API key (or leave blank to skip)"
                 value={anthropicKey}
-                onChange={(e) => setAnthropicKey(e.target.value)}
+                onChange={(e) => { setAnthropicKey(e.target.value); setAnthropicError(null) }}
                 onKeyDown={(e) => e.key === 'Enter' && saveAnthropicKey()}
-                className="w-full px-4 py-2.5 bg-surface-secondary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono transition-colors"
+                className={`w-full px-4 py-2.5 bg-surface-secondary border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none font-mono transition-colors ${
+                  anthropicError ? 'border-red-900/70 focus:border-red-700' : 'border-border focus:border-accent'
+                }`}
               />
+              {anthropicError && (
+                <p className="text-xs text-red-400 -mt-2">{anthropicError}</p>
+              )}
               <button
                 onClick={saveAnthropicKey}
                 disabled={savingAnthropic}
                 className="w-full px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover disabled:opacity-40 disabled:cursor-default transition-colors"
               >
                 {savingAnthropic
-                  ? 'Saving...'
+                  ? 'Checking...'
                   : anthropicKey.trim()
                     ? 'Save Key & Continue'
                     : 'Skip'}

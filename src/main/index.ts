@@ -22,6 +22,7 @@ import { setupIpcHandlers, recoveryState } from './ipc'
 import { setupTray } from './tray'
 import { PipelineOrchestrator } from './pipeline/orchestrator'
 import { initDatabase, closeDatabase, syncFilesystemToDb } from './storage/db'
+import { cleanupOrphanedMeetingDirs } from './storage/files'
 import { startCalendarSync, stopCalendarSync } from './calendar/sync'
 import { startAutoRecord, stopAutoRecord } from './audio/auto-record'
 import { recoverAll } from './pipeline/recovery'
@@ -92,6 +93,16 @@ app.whenReady().then(async () => {
   // Initialize SQLite database
   try {
     initDatabase()
+
+    // Sweep orphaned meeting directories left by a crash between transcript
+    // write and metadata.json commit. Must run BEFORE syncFilesystemToDb so the
+    // index doesn't pick them up as "real" meetings with missing content.
+    try {
+      const removed = cleanupOrphanedMeetingDirs()
+      if (removed > 0) log.warn(`[App] Removed ${removed} orphaned meeting dir(s)`)
+    } catch (err) {
+      log.error('[App] Orphaned meeting cleanup failed:', err)
+    }
 
     // Discover meetings on disk not yet in DB (e.g., from prior ABI mismatch)
     syncFilesystemToDb(config.general.data_dir)
