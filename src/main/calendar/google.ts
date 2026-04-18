@@ -183,8 +183,19 @@ export function abortGoogleAuth(): void {
 /**
  * Open the auth URL in the browser and wait for the callback.
  * Returns the authorization code.
+ *
+ * `port` is optional, defaulting to the production callback port. Tests pass
+ * a different port so they can run on CI without colliding with a real
+ * running app.
+ *
+ * @internal Exported only so the regression test can exercise back-to-back
+ * flows on the same port and verify keep-alive socket reuse doesn't cause
+ * the second flow's Promise to hang.
  */
-async function captureAuthCode(authUrl: string): Promise<string> {
+export async function captureAuthCode(
+  authUrl: string,
+  port: number = CALLBACK_PORT
+): Promise<string> {
   // Clean up any lingering server from a previous flow.
   //
   // server.close() stops accepting NEW connections but leaves existing
@@ -254,7 +265,7 @@ async function captureAuthCode(authUrl: string): Promise<string> {
           `[Calendar] OAuth callback hit: ${req.method} ${req.url?.slice(0, 160) ?? '/'}`
         )
 
-        const url = new URL(req.url ?? '/', `http://127.0.0.1:${CALLBACK_PORT}`)
+        const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`)
         log.info(`[Calendar] [${flowId}] callback pathname="${url.pathname}" hasCode=${url.searchParams.has('code')} hasError=${url.searchParams.has('error')}`)
 
         if (url.pathname !== '/callback') {
@@ -357,9 +368,9 @@ async function captureAuthCode(authUrl: string): Promise<string> {
       ))
     }, 120000)
 
-    server.listen(CALLBACK_PORT, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       log.info(
-        `[Calendar] [${flowId}] OAuth callback server listening on port ${CALLBACK_PORT} — ` +
+        `[Calendar] [${flowId}] OAuth callback server listening on port ${port} — ` +
         `opening browser to Google's consent page`
       )
       // openExternal can fail (no default browser, etc); surface it loudly
@@ -376,7 +387,7 @@ async function captureAuthCode(authUrl: string): Promise<string> {
     server.on('error', (err: NodeJS.ErrnoException) => {
       cleanup()
       if (err.code === 'EADDRINUSE') {
-        reject(new Error(`Port ${CALLBACK_PORT} in use — close other OAuth flows first`))
+        reject(new Error(`Port ${port} in use — close other OAuth flows first`))
       } else {
         reject(err)
       }
