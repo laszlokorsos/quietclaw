@@ -153,8 +153,16 @@ export default function Settings({
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('timeout')), 120_000)
       )
-      await Promise.race([api.calendar.addGoogle(), timeout])
+      const result = await Promise.race([api.calendar.addGoogle(), timeout])
       setCalendarAccounts(await api.calendar.accounts())
+      // Visible confirmation of success + what got synced. Otherwise the
+      // toast-less success case looks identical to a silent failure.
+      const { eventCount, accountCount } = result
+      const calendarsWord = accountCount === 1 ? 'calendar' : 'calendars'
+      const eventsWord = eventCount === 1 ? 'event' : 'events'
+      addToast(
+        `Connected — synced ${eventCount} ${eventsWord} from ${accountCount} ${calendarsWord}`
+      )
     } catch (err) {
       // Surface the real error (scope rejection, port conflict, network timeout,
       // invalid_grant). Previously swallowed — users saw a silent spinner drop.

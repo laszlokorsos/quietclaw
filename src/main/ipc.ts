@@ -211,13 +211,18 @@ export function setupIpcHandlers(
     // Immediate sync so events populate right after OAuth. Otherwise the user
     // waits up to 5 minutes for the next periodic tick and sees an empty list,
     // making OAuth look broken. Failures here just log — the periodic sync
-    // will retry and the UI will eventually catch up.
+    // will retry and the UI will eventually catch up. The counts come back so
+    // the renderer can show a "synced N events from M calendars" toast.
+    let syncResult: { eventCount: number; accountCount: number } = {
+      eventCount: 0,
+      accountCount: 0
+    }
     try {
-      await syncNow()
+      syncResult = await syncNow()
     } catch (err) {
       log.warn('[IPC] Post-OAuth syncNow failed (periodic sync will retry):', err)
     }
-    return email
+    return { email, ...syncResult }
   })
 
   ipcMain.handle('calendar:remove', (_event, email: string) => {
@@ -243,11 +248,16 @@ export function setupIpcHandlers(
   })
 
   ipcMain.handle('calendar:sync', async () => {
-    await syncNow()
-    return getCachedEvents().map((e) => ({
-      ...e,
-      calendarAccountTag: e.calendarAccountEmail ? getAccountTag(e.calendarAccountEmail) : undefined
-    }))
+    // Returns an object with the sync counts AND the events, so a refresh
+    // button in the UI can show both a toast and updated data in one round-trip.
+    const result = await syncNow()
+    return {
+      ...result,
+      events: getCachedEvents().map((e) => ({
+        ...e,
+        calendarAccountTag: e.calendarAccountEmail ? getAccountTag(e.calendarAccountEmail) : undefined
+      }))
+    }
   })
 
   // Meetings — formatRows imported from ./ipc-helpers

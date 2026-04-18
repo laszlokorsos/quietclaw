@@ -21,6 +21,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [connectingCalendar, setConnectingCalendar] = useState(false)
   const [calendarConnected, setCalendarConnected] = useState(false)
   const [calendarError, setCalendarError] = useState<string | null>(null)
+  const [calendarSyncSummary, setCalendarSyncSummary] = useState<string | null>(null)
   const [launchAtLogin, setLaunchAtLogin] = useState(true)
 
   const stepIndex = STEPS.indexOf(step)
@@ -102,8 +103,12 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('timeout')), 120_000)
       )
-      await Promise.race([api.calendar.addGoogle(), timeout])
+      const result = await Promise.race([api.calendar.addGoogle(), timeout])
       setCalendarConnected(true)
+      const { eventCount, accountCount } = result
+      const calendarsWord = accountCount === 1 ? 'calendar' : 'calendars'
+      const eventsWord = eventCount === 1 ? 'event' : 'events'
+      setCalendarSyncSummary(`Synced ${eventCount} ${eventsWord} from ${accountCount} ${calendarsWord}`)
     } catch (err) {
       // Surface non-user-initiated failures (scope rejection, port conflict,
       // network timeout) so the user has something actionable instead of a
@@ -289,11 +294,16 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           {step === 'calendar' && (
             <div className="space-y-4">
               {calendarConnected ? (
-                <div className="flex items-center gap-2 bg-green-950/50 border border-green-900/50 rounded-xl px-4 py-3">
-                  <svg className="w-5 h-5 text-success shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-start gap-2 bg-green-950/50 border border-green-900/50 rounded-xl px-4 py-3">
+                  <svg className="w-5 h-5 text-success shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-sm text-green-300">Calendar connected</span>
+                  <div className="flex-1">
+                    <p className="text-sm text-green-300">Calendar connected</p>
+                    {calendarSyncSummary && (
+                      <p className="text-xs text-green-300/70 mt-0.5">{calendarSyncSummary}</p>
+                    )}
+                  </div>
                 </div>
               ) : connectingCalendar ? (
                 <div className="space-y-2">

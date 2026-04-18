@@ -405,9 +405,43 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
   const [loadingCalendar, setLoadingCalendar] = useState(true)
   const [hasDeepgramKey, setHasDeepgramKey] = useState(false)
   const [calendarAccountCount, setCalendarAccountCount] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { addToast } = useToast()
+
+  /**
+   * Manually re-sync calendar events and reload the past-meetings index.
+   * Bypasses the 5-minute periodic sync so the user isn't stuck waiting
+   * after a meeting ends or after making calendar changes outside the app.
+   */
+  const refreshAll = useCallback(async () => {
+    if (!api || refreshing) return
+    setRefreshing(true)
+    try {
+      const result = await api.calendar.sync()
+      // calendar-synced will fire loadCalendar via the listener, but we also
+      // refresh meetings here so the past-meetings list picks up any new
+      // recordings that finished since the last reload.
+      loadMeetings()
+      const { eventCount, accountCount } = result
+      if (accountCount === 0) {
+        addToast('No calendar accounts connected', 'info')
+      } else {
+        const calendarsWord = accountCount === 1 ? 'calendar' : 'calendars'
+        const eventsWord = eventCount === 1 ? 'event' : 'events'
+        addToast(`Synced ${eventCount} ${eventsWord} from ${accountCount} ${calendarsWord}`)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      addToast(`Refresh failed: ${msg}`, 'error')
+    } finally {
+      setRefreshing(false)
+    }
+  // loadMeetings is a stable function defined in the same scope; including it
+  // in deps would require useCallback-ing it too for no real benefit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshing, addToast])
 
   // Listen for Cmd+K / "/" focus-search events from App.tsx
   useEffect(() => {
@@ -547,35 +581,58 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
     <div className="p-6">
       <RecoveryBanner onSelectMeeting={onSelect} />
 
-      {/* Search */}
-      <div className="mb-6 relative">
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
-        <input
-          ref={searchInputRef}
-          type="text"
-          placeholder="Search meetings..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') fireSearchNow()
-            if (e.key === 'Escape') { setSearch(''); searchInputRef.current?.blur() }
-          }}
-          className={`w-full pl-9 ${search ? 'pr-9' : 'pr-4'} py-2.5 bg-surface-secondary border border-border/50 rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent focus:ring-2 focus:ring-accent/10 shadow-inner shadow-black/[0.03] transition-all`}
-        />
-        {search && (
-          <button
-            onClick={() => setSearch('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+      {/* Search + refresh */}
+      <div className="mb-6 flex gap-2">
+        <div className="relative flex-1">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search meetings..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') fireSearchNow()
+              if (e.key === 'Escape') { setSearch(''); searchInputRef.current?.blur() }
+            }}
+            className={`w-full pl-9 ${search ? 'pr-9' : 'pr-4'} py-2.5 bg-surface-secondary border border-border/50 rounded-xl text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent focus:ring-2 focus:ring-accent/10 shadow-inner shadow-black/[0.03] transition-all`}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
+        </div>
+        <button
+          onClick={refreshAll}
+          disabled={refreshing}
+          title="Refresh calendar and meetings"
+          aria-label="Refresh"
+          className="px-3 py-2.5 bg-surface-secondary border border-border/50 rounded-xl text-text-secondary hover:text-text-primary hover:border-border shadow-inner shadow-black/[0.03] disabled:opacity-50 disabled:cursor-default transition-all"
+        >
+          <svg
+            className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        )}
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+        </button>
       </div>
 
       {/* Upcoming Today + Recording — hidden during active search */}

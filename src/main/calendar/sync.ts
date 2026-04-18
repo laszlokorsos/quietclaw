@@ -52,14 +52,21 @@ export function stopCalendarSync(): void {
   }
 }
 
+/** Result of a sync — lets callers report the outcome to the UI without
+ *  having to re-read the cache. */
+export interface SyncResult {
+  eventCount: number
+  accountCount: number
+}
+
 /**
  * Run a sync immediately — fetch events from all connected accounts.
  */
-export async function syncNow(): Promise<void> {
+export async function syncNow(): Promise<SyncResult> {
   const accounts = getActiveAccountEmails()
   if (accounts.length === 0) {
     log.debug('[Calendar] No active accounts — skipping sync')
-    return
+    return { eventCount: 0, accountCount: 0 }
   }
 
   const config = loadConfig()
@@ -87,14 +94,23 @@ export async function syncNow(): Promise<void> {
   cachedEvents = deduplicateEvents(allEvents)
   lastSyncTime = now
 
+  const result: SyncResult = {
+    eventCount: cachedEvents.length,
+    accountCount: accounts.length
+  }
+
   log.info(
-    `[Calendar] Synced ${cachedEvents.length} events from ${accounts.length} account(s)`
+    `[Calendar] Synced ${result.eventCount} events from ${result.accountCount} account(s)`
   )
 
-  // Notify all renderer windows that calendar data is fresh
+  // Notify all renderer windows that calendar data is fresh. Pass the counts
+  // in the payload so listeners can surface a "synced N events" toast without
+  // having to issue another IPC round-trip.
   for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send('calendar-synced')
+    win.webContents.send('calendar-synced', result)
   }
+
+  return result
 }
 
 /**

@@ -74,12 +74,15 @@ export interface QuietClawAPI {
   }
   calendar: {
     accounts: () => Promise<unknown[]>
-    addGoogle: () => Promise<string>
+    /** OAuth + immediate sync. Returns the authorized email and the counts from
+     *  the post-OAuth sync (eventCount, accountCount) so the UI can confirm. */
+    addGoogle: () => Promise<{ email: string; eventCount: number; accountCount: number }>
     abortAuth: () => Promise<boolean>
     remove: (email: string) => Promise<boolean>
     updateTag: (email: string, tag: string) => Promise<boolean>
     events: () => Promise<unknown[]>
-    sync: () => Promise<unknown[]>
+    /** Manually trigger a sync. Returns counts + fresh event list. */
+    sync: () => Promise<{ eventCount: number; accountCount: number; events: unknown[] }>
   }
   on: (channel: string, callback: (...args: unknown[]) => void) => () => void
 }
