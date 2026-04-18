@@ -166,14 +166,14 @@ export default function Settings({
       )
       const result = await Promise.race([api.calendar.addGoogle(), timeout])
       setCalendarAccounts(await api.calendar.accounts())
-      // Visible confirmation of success + what got synced. Otherwise the
-      // toast-less success case looks identical to a silent failure.
-      const { eventCount, accountCount } = result
-      const calendarsWord = accountCount === 1 ? 'calendar' : 'calendars'
+      // Visible confirmation of success + which account + what got synced.
+      // Including the email is critical when users have multiple Google
+      // accounts signed into the same browser — it lets them spot the
+      // "I clicked Connect for work but Google gave me personal" case
+      // immediately instead of wondering why work isn't syncing.
+      const { email, eventCount } = result
       const eventsWord = eventCount === 1 ? 'event' : 'events'
-      addToast(
-        `Connected — synced ${eventCount} ${eventsWord} from ${accountCount} ${calendarsWord}`
-      )
+      addToast(`Connected ${email} — synced ${eventCount} ${eventsWord}`)
     } catch (err) {
       // Surface the real error (scope rejection, port conflict, network timeout,
       // invalid_grant). Previously swallowed — users saw a silent spinner drop.

@@ -68,7 +68,13 @@ export async function authorizeGoogleCalendar(): Promise<string> {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
-    prompt: 'consent' // Always prompt to ensure we get a refresh token
+    // 'select_account consent' forces BOTH the account picker AND the consent
+    // screen. Without 'select_account', Google auto-selects whichever account
+    // the browser's Google session is logged into — which for users with
+    // multiple Google accounts means they click Connect intending one account
+    // and silently end up re-authorizing a different one. The consent part
+    // still guarantees we get a refresh_token back.
+    prompt: 'select_account consent'
   })
 
   // Start ephemeral server to capture the callback

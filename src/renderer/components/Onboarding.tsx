@@ -105,10 +105,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       )
       const result = await Promise.race([api.calendar.addGoogle(), timeout])
       setCalendarConnected(true)
-      const { eventCount, accountCount } = result
-      const calendarsWord = accountCount === 1 ? 'calendar' : 'calendars'
+      const { email, eventCount } = result
       const eventsWord = eventCount === 1 ? 'event' : 'events'
-      setCalendarSyncSummary(`Synced ${eventCount} ${eventsWord} from ${accountCount} ${calendarsWord}`)
+      setCalendarSyncSummary(`${email} — synced ${eventCount} ${eventsWord}`)
     } catch (err) {
       // Surface non-user-initiated failures (scope rejection, port conflict,
       // network timeout) so the user has something actionable instead of a
