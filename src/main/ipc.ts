@@ -7,7 +7,7 @@
 
 import { app, ipcMain, dialog, shell, nativeTheme } from 'electron'
 import log from 'electron-log/main'
-import { loadConfig, updateConfigField, reloadConfig } from './config/settings'
+import { loadConfig, updateConfigField, reloadConfig, getCustomSummarizationPrompt, setCustomSummarizationPrompt } from './config/settings'
 import { getDeepgramApiKey, getAnthropicApiKey, setDeepgramApiKey, setAnthropicApiKey } from './config/secrets'
 import { listAccounts, addGoogleAccount, removeAccount, updateAccountTag } from './calendar/accounts'
 import { abortGoogleAuth } from './calendar/google'
@@ -22,7 +22,7 @@ import {
 } from './storage/db'
 import { readMeetingMetadata, readTranscript, readSummary, readActions, writeSummaryFiles, deleteMeetingFiles, remapSpeakers, resetSpeakers } from './storage/files'
 import { markSummarized, indexMeeting } from './storage/db'
-import { AnthropicSummarizer } from './pipeline/summarizer/anthropic'
+import { AnthropicSummarizer, DEFAULT_SYSTEM_PROMPT, DEFAULT_PROMPT_VERSION } from './pipeline/summarizer/anthropic'
 import { recoverAll } from './pipeline/recovery'
 import { formatRows, getAccountTag } from './ipc-helpers'
 import type { AudioCaptureProvider } from './audio/types'
@@ -146,6 +146,28 @@ export function setupIpcHandlers(
   ipcMain.handle('secrets:setAnthropicKey', (_event, key: string) => {
     setAnthropicApiKey(key)
     log.info('[IPC] Anthropic API key saved')
+    return true
+  })
+
+  // Summarization prompt — exposed so the Settings UI can show the built-in
+  // default, let the user edit an override, and reset it. The override is
+  // stored as a plain text file (~/.quietclaw/summarization-prompt.txt)
+  // rather than a config.toml key because multi-line prompts don't round-trip
+  // cleanly through the regex-based TOML writer.
+  ipcMain.handle(
+    'summarization:getPrompts',
+    (): { defaultPrompt: string; defaultVersion: string; customPrompt: string } => {
+      return {
+        defaultPrompt: DEFAULT_SYSTEM_PROMPT,
+        defaultVersion: DEFAULT_PROMPT_VERSION,
+        customPrompt: getCustomSummarizationPrompt() ?? ''
+      }
+    }
+  )
+
+  ipcMain.handle('summarization:setCustomPrompt', (_event, prompt: string) => {
+    // Empty/whitespace-only input clears the override → default resumes.
+    setCustomSummarizationPrompt(prompt)
     return true
   })
 

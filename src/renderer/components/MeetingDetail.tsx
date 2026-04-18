@@ -33,6 +33,11 @@ interface ActionItem {
   priority: string
   status: string
   agent_executable: boolean
+  /** How certain the summarizer is this is a real commitment. */
+  confidence?: 'high' | 'medium' | 'low'
+  /** Quote or paraphrase from the transcript supporting this action. */
+  rationale?: string
+  due_date?: string
 }
 
 interface MeetingMeta {
@@ -451,10 +456,26 @@ export default function MeetingDetail({
                   <p className="text-sm text-text-primary">{action.description}</p>
                   <p className="text-xs text-text-muted mt-0.5">
                     {action.assignee}
+                    {action.confidence && action.confidence !== 'high' && (
+                      <span className="ml-2">· {action.confidence} confidence</span>
+                    )}
+                    {action.due_date && (
+                      <span className="ml-2">· due {action.due_date}</span>
+                    )}
                     {action.agent_executable && (
-                      <span className="ml-2 text-accent">Agent-executable</span>
+                      <span className="ml-2 text-accent">· agent-executable</span>
                     )}
                   </p>
+                  {action.rationale && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-text-muted hover:text-text-secondary cursor-pointer select-none">
+                        Why
+                      </summary>
+                      <blockquote className="mt-1.5 pl-3 border-l-2 border-border text-xs text-text-secondary italic">
+                        {action.rationale}
+                      </blockquote>
+                    </details>
+                  )}
                 </div>
                 <span className={`text-xs shrink-0 ${
                   action.status === 'completed' ? 'text-success' :

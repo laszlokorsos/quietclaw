@@ -137,6 +137,13 @@ export interface MeetingSummary {
   /** Provider and model used */
   provider: string
   model: string
+  /**
+   * Identifier for the prompt that produced this summary. Lets us know
+   * which prompt version a given on-disk summary came from — useful when
+   * comparing output quality across prompt revisions or after the user
+   * has set a custom prompt.
+   */
+  prompt_version: string
 }
 
 export interface SummaryTopic {
@@ -153,6 +160,19 @@ export interface ActionItem {
   description: string
   /** Who is responsible */
   assignee: string
+  /**
+   * How certain the extractor is that this is a real commitment:
+   * - high: someone explicitly committed to a specific action
+   * - medium: someone agreed to a vague ownership
+   * - low: implied or inferred, kept for user review
+   */
+  confidence: 'high' | 'medium' | 'low'
+  /**
+   * Short quote or paraphrase from the transcript justifying this action item.
+   * Lets the user (or a downstream agent) verify the commitment without
+   * re-reading the transcript.
+   */
+  rationale: string
   /** Priority level */
   priority: 'high' | 'medium' | 'low'
   /** Whether an agent could execute this */

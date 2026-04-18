@@ -68,6 +68,16 @@ export interface QuietClawAPI {
     remapSpeakers: (id: string, mapping: Record<string, string>) => Promise<unknown>
     resetSpeakers: (id: string) => Promise<unknown>
   }
+  summarization: {
+    /** Returns the built-in default prompt, its version ID, and the user's
+     *  current custom prompt (empty string if unset). Lets the Settings UI
+     *  show the default verbatim and prefill the editor with the current
+     *  override. */
+    getPrompts: () => Promise<{ defaultPrompt: string; defaultVersion: string; customPrompt: string }>
+    /** Save a custom summarization prompt. Empty string clears the override
+     *  and reverts to the built-in default. */
+    setCustomPrompt: (prompt: string) => Promise<boolean>
+  }
   recovery: {
     getStatus: () => Promise<unknown>
     process: () => Promise<unknown>
@@ -121,6 +131,10 @@ const api: QuietClawAPI = {
     setAnthropicKey: (key: string) => ipcRenderer.invoke('secrets:setAnthropicKey', key),
     validateDeepgramKey: (key: string) => ipcRenderer.invoke('secrets:validateDeepgramKey', key),
     validateAnthropicKey: (key: string) => ipcRenderer.invoke('secrets:validateAnthropicKey', key)
+  },
+  summarization: {
+    getPrompts: () => ipcRenderer.invoke('summarization:getPrompts'),
+    setCustomPrompt: (prompt: string) => ipcRenderer.invoke('summarization:setCustomPrompt', prompt)
   },
   meetings: {
     list: (limit?: number, offset?: number) => ipcRenderer.invoke('meetings:list', limit, offset),

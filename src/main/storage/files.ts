@@ -156,9 +156,10 @@ export function writeSummaryFiles(
   atomicWrite(summaryPath, JSON.stringify(summary, null, 2))
   log.info(`[Storage] Wrote ${summaryPath}`)
 
-  // summary.md
+  // summary.md — now includes action items with rationale so the markdown
+  // is self-contained for agents that only consume the .md view.
   const summaryMdPath = path.join(meetingDir, 'summary.md')
-  atomicWrite(summaryMdPath, renderSummaryMarkdown(metadata, summary))
+  atomicWrite(summaryMdPath, renderSummaryMarkdown(metadata, summary, actions))
   log.info(`[Storage] Wrote ${summaryMdPath}`)
 
   // actions.json
@@ -182,11 +183,11 @@ export function writeSummaryFiles(
   const metadataPath = path.join(meetingDir, 'metadata.json')
   atomicWrite(metadataPath, JSON.stringify(updatedMetadata, null, 2))
 
-  // Re-render summary.md with frontmatter
+  // Re-render summary.md with frontmatter (includes actions section).
   const config = loadConfig()
   if (config.general.markdown_output) {
     const summaryMdPath = path.join(meetingDir, 'summary.md')
-    atomicWrite(summaryMdPath, renderSummaryMarkdown(updatedMetadata, summary))
+    atomicWrite(summaryMdPath, renderSummaryMarkdown(updatedMetadata, summary, actions))
   }
 
   // Update daily index
@@ -314,13 +315,15 @@ export function remapSpeakers(
   // Rewrite metadata.json, transcript.json, transcript.md, and daily index
   writeMeetingFiles(metadata, transcript)
 
-  // Regenerate summary.md if it exists (frontmatter uses metadata.speakers)
+  // Regenerate summary.md if it exists (frontmatter uses metadata.speakers,
+  // and we re-embed action items so they pick up the new speaker names).
   const summary = readSummary(meetingDir)
   if (summary) {
     const config = loadConfig()
     if (config.general.markdown_output) {
+      const actions = readActions(meetingDir) ?? []
       const summaryMdPath = path.join(meetingDir, 'summary.md')
-      atomicWrite(summaryMdPath, renderSummaryMarkdown(metadata, summary))
+      atomicWrite(summaryMdPath, renderSummaryMarkdown(metadata, summary, actions))
       log.info(`[Storage] Regenerated ${summaryMdPath} after speaker remap`)
     }
   }
@@ -377,8 +380,9 @@ export function resetSpeakers(
   if (summary) {
     const config = loadConfig()
     if (config.general.markdown_output) {
+      const actions = readActions(meetingDir) ?? []
       const summaryMdPath = path.join(meetingDir, 'summary.md')
-      atomicWrite(summaryMdPath, renderSummaryMarkdown(metadata, summary))
+      atomicWrite(summaryMdPath, renderSummaryMarkdown(metadata, summary, actions))
     }
   }
 
@@ -490,7 +494,8 @@ function renderTranscriptMarkdown(
 
 function renderSummaryMarkdown(
   metadata: MeetingMetadata,
-  summary: MeetingSummary
+  summary: MeetingSummary,
+  actions: ActionItem[] = []
 ): string {
   const lines: string[] = []
 
@@ -516,6 +521,24 @@ function renderSummaryMarkdown(
     lines.push('## Decisions')
     for (const d of summary.decisions) {
       lines.push(`- ${d}`)
+    }
+    lines.push('')
+  }
+
+  if (actions.length > 0) {
+    lines.push('## Action Items')
+    for (const a of actions) {
+      // Headline line — priority + confidence badges so readers can scan.
+      const confidenceBadge = a.confidence === 'high' ? '' : ` _(${a.confidence} confidence)_`
+      lines.push(`- **${a.description}** — ${a.assignee}${confidenceBadge}`)
+      if (a.rationale) {
+        // Quoted rationale as an indented blockquote — keeps the source
+        // grounded without forcing the reader into the full transcript.
+        lines.push(`  > ${a.rationale}`)
+      }
+      if (a.due_date) {
+        lines.push(`  _Due: ${a.due_date}_`)
+      }
     }
     lines.push('')
   }

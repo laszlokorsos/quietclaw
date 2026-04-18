@@ -65,8 +65,6 @@ export interface SummarizationConfig {
   enabled: boolean
   provider: 'anthropic'
   model: string
-  /** Override the built-in summarization prompt. Empty string = use default. */
-  custom_prompt: string
 }
 
 export interface NotificationsConfig {
@@ -152,8 +150,7 @@ function getDefaults(): AppConfig {
     summarization: {
       enabled: true,
       provider: 'anthropic',
-      model: 'claude-haiku-4-5-20251001',
-      custom_prompt: ''
+      model: 'claude-haiku-4-5-20251001'
     },
     notifications: {
       on_meeting_processed: true,
@@ -253,6 +250,44 @@ export function getConfigDir(): string {
 /** Get the config file path */
 export function getConfigPath(): string {
   return CONFIG_PATH
+}
+
+/**
+ * Path to the user's custom summarization prompt override. Kept in a
+ * separate file (not in config.toml) because multi-line prompts are awkward
+ * to embed in TOML and the existing config writer regex-parses values —
+ * neither handles multi-line strings with arbitrary quoting cleanly.
+ */
+const CUSTOM_PROMPT_PATH = path.join(CONFIG_DIR, 'summarization-prompt.txt')
+
+/** Read the user's custom summarization prompt. Empty/missing → null. */
+export function getCustomSummarizationPrompt(): string | null {
+  if (!fs.existsSync(CUSTOM_PROMPT_PATH)) return null
+  try {
+    const content = fs.readFileSync(CUSTOM_PROMPT_PATH, 'utf-8').trim()
+    return content.length > 0 ? content : null
+  } catch (err) {
+    log.error('[Config] Failed to read custom summarization prompt:', err)
+    return null
+  }
+}
+
+/**
+ * Set the custom prompt. Empty or whitespace-only input deletes the file
+ * (restores the built-in default).
+ */
+export function setCustomSummarizationPrompt(prompt: string): void {
+  ensureConfigDir()
+  const trimmed = prompt.trim()
+  if (trimmed.length === 0) {
+    if (fs.existsSync(CUSTOM_PROMPT_PATH)) {
+      fs.unlinkSync(CUSTOM_PROMPT_PATH)
+      log.info('[Config] Custom summarization prompt cleared — using default')
+    }
+    return
+  }
+  fs.writeFileSync(CUSTOM_PROMPT_PATH, prompt, { encoding: 'utf-8', mode: 0o600 })
+  log.info(`[Config] Custom summarization prompt saved (${prompt.length} chars)`)
 }
 
 /**

@@ -104,6 +104,12 @@ export default function Settings({
   const [showDeepgramKey, setShowDeepgramKey] = useState(false)
   const [showAnthropicKey, setShowAnthropicKey] = useState(false)
   const [launchAtLogin, setLaunchAtLogin] = useState(true)
+  // Summarization prompt state — the default is shown read-only; customPrompt
+  // is editable and persists to ~/.quietclaw/summarization-prompt.txt.
+  const [defaultPrompt, setDefaultPrompt] = useState('')
+  const [customPrompt, setCustomPrompt] = useState('')
+  const [promptDraft, setPromptDraft] = useState('')
+  const [showDefaultPrompt, setShowDefaultPrompt] = useState(false)
   const { addToast } = useToast()
 
   useEffect(() => {
@@ -129,6 +135,31 @@ export default function Settings({
     const config = await api.config.get() as any
     setDataDir(config?.general?.data_dir ?? '')
     setLaunchAtLogin(config?.general?.launch_at_login ?? true)
+    // Load the prompt state. The editor draft defaults to whatever the user
+    // saved last — empty means they're on the built-in default.
+    const prompts = await api.summarization.getPrompts()
+    setDefaultPrompt(prompts.defaultPrompt)
+    setCustomPrompt(prompts.customPrompt)
+    setPromptDraft(prompts.customPrompt)
+  }
+
+  async function savePrompt() {
+    if (!api) return
+    setSaving('prompt')
+    await api.summarization.setCustomPrompt(promptDraft)
+    setCustomPrompt(promptDraft.trim())
+    setSaving(null)
+    setSaved('prompt')
+    setTimeout(() => setSaved(null), 2000)
+    addToast(
+      promptDraft.trim().length > 0
+        ? 'Custom summarization prompt saved'
+        : 'Summarization prompt reset to default'
+    )
+  }
+
+  function resetPromptToDefault() {
+    setPromptDraft('')
   }
 
   async function saveDeepgramKey() {
@@ -329,6 +360,72 @@ export default function Settings({
           </div>
         </div>
       </section>
+
+      {/* ── Summarization ── */}
+      {hasAnthropicKey && (
+        <section className="mb-8">
+          <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">Summarization</h3>
+          <div className="bg-surface-secondary rounded-2xl px-5 py-4">
+            <div className="flex items-baseline justify-between mb-1">
+              <span className="text-sm font-medium text-text-primary">Prompt</span>
+              {customPrompt.length > 0 ? (
+                <span className="text-xs text-accent">Custom</span>
+              ) : (
+                <span className="text-xs text-text-muted">Using built-in default</span>
+              )}
+            </div>
+            <p className="text-xs text-text-muted mb-3">
+              The system prompt that Claude receives along with your meeting transcript. Leave empty
+              to use the built-in default; customize it to tune summaries for your meeting style.
+            </p>
+
+            <textarea
+              value={promptDraft}
+              onChange={(e) => setPromptDraft(e.target.value)}
+              placeholder="Leave empty to use the built-in default prompt. Click 'Show default' to see what that is."
+              rows={10}
+              className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-xs text-text-primary placeholder-text-muted outline-none focus:border-accent font-mono resize-y"
+              spellCheck={false}
+            />
+
+            <div className="flex items-center justify-between mt-3 gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={savePrompt}
+                  disabled={saving === 'prompt' || promptDraft === customPrompt}
+                  className="px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover disabled:opacity-40 disabled:cursor-default transition-colors"
+                >
+                  {saving === 'prompt' ? 'Saving...' : saved === 'prompt' ? 'Saved' : 'Save prompt'}
+                </button>
+                <button
+                  onClick={resetPromptToDefault}
+                  disabled={promptDraft.trim().length === 0}
+                  className="px-3 py-2 bg-surface text-text-secondary text-sm rounded-lg hover:bg-surface-elevated disabled:opacity-40 disabled:cursor-default transition-colors"
+                >
+                  Reset to default
+                </button>
+              </div>
+              <button
+                onClick={() => setShowDefaultPrompt(!showDefaultPrompt)}
+                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+              >
+                {showDefaultPrompt ? 'Hide default' : 'Show default'}
+              </button>
+            </div>
+
+            {showDefaultPrompt && (
+              <details open className="mt-3">
+                <summary className="text-xs text-text-muted cursor-pointer select-none">
+                  Built-in default prompt (read-only)
+                </summary>
+                <pre className="mt-2 px-3 py-2 bg-surface border border-border rounded-lg text-xs text-text-secondary font-mono whitespace-pre-wrap overflow-auto max-h-80">
+                  {defaultPrompt}
+                </pre>
+              </details>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── Integrations ── */}
       <section className="mb-8">

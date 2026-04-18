@@ -55,10 +55,11 @@ diarize = true
 enabled = true                     # Set to false for raw transcript only
 provider = "anthropic"             # Only "anthropic" is supported today
 model = "claude-haiku-4-5-20251001"
-custom_prompt = ""                 # Override the built-in prompt. Leave empty to use the default.
-                                   # The default is tuned for meeting notes with action items,
-                                   # decisions, topics, and a sentiment summary. Also editable
-                                   # from Settings → Summarization in the app.
+# The prompt itself is not stored in this TOML (it's multiline and would be
+# awkward to edit here). To override it, write your custom prompt to
+# ~/.quietclaw/summarization-prompt.txt — the app reads that file when it
+# exists and non-empty, falling back to the built-in default otherwise. You
+# can also edit it from Settings → Summarization inside the app.
 
 [notifications]
 on_meeting_processed = true
