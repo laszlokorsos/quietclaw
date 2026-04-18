@@ -212,22 +212,36 @@ async function captureAuthCode(authUrl: string): Promise<string> {
     activeOAuthReject = reject
 
     function sendHtml(res: ServerResponse, html: string) {
-      // 'Connection: close' prevents the browser from keeping this TCP
-      // connection alive. Without it, the browser reuses the socket on a
-      // later redirect, the request hits a previous flow's server (still
-      // tracking the live socket), and the new flow's server never gets
-      // the callback — UI hangs forever. This one header is the fix.
+      // Cache-Control: no-store is the critical bit for repeat flows.
+      // Without it, Chrome/Safari happily cache this HTML response. On the
+      // SECOND OAuth in the session, Google redirects the browser to
+      // 127.0.0.1:19833/callback?code=<new> — same path, different query —
+      // and the browser serves the CACHED "Calendar connected!" body
+      // instead of hitting the network. Our new server never gets the
+      // request. The UI spinner hangs for 120s until the safety timeout.
+      //
+      // 'Connection: close' complements this by killing HTTP keep-alive so
+      // the browser opens a fresh TCP connection each flow.
       res.writeHead(200, {
         'Content-Type': 'text/html',
-        'Connection': 'close'
+        'Connection': 'close',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma': 'no-cache'
       })
       res.end(html)
     }
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      // Log every incoming request so we can tell from the log alone whether
+      // the browser is actually hitting our server (vs. replaying a cached
+      // response). Without this, a cache hit looks identical to a server hang.
+      log.info(
+        `[Calendar] OAuth callback hit: ${req.method} ${req.url?.slice(0, 160) ?? '/'}`
+      )
+
       const url = new URL(req.url ?? '/', `http://127.0.0.1:${CALLBACK_PORT}`)
       if (url.pathname !== '/callback') {
-        res.writeHead(404)
+        res.writeHead(404, { 'Cache-Control': 'no-store' })
         res.end()
         return
       }
