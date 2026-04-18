@@ -24,7 +24,8 @@ import { syncNow } from '../calendar/sync'
 import { AnthropicSummarizer } from './summarizer/anthropic'
 import { writeSummaryFiles } from '../storage/files'
 import { markSummarized } from '../storage/db'
-import { concatFloat32Arrays, generateSlug } from './utils'
+import { concatFloat32Arrays } from './utils'
+import { assembleTranscript } from './transcript-assembler'
 import type { MatchResult } from '../calendar/matcher'
 import type { StreamingSttProvider, SttResult } from './stt/provider'
 import type { AudioCaptureProvider, AudioChunk } from '../audio/types'
@@ -350,69 +351,32 @@ export class PipelineOrchestrator {
       await this.sttProvider.disconnect()
     }
 
-    // Remove mic-channel bleed by comparing against system-channel text
-    if (this.speakerIdentifier) {
-      this.segments = this.speakerIdentifier.deduplicateBleed(this.segments)
-    }
-
-    // Refine speaker names using calendar attendees. Currently auto-names the
-    // single other speaker on 2-person calls; larger meetings keep generic
-    // labels for the user to reassign.
-    if (this.speakerIdentifier) {
-      this.segments = this.speakerIdentifier.refineWithCalendar(this.segments)
-    }
-
-    // Sort segments by start time
-    this.segments.sort((a, b) => a.start - b.start)
-
-    // Merge adjacent segments from the same speaker
-    this.segments = this.mergeAdjacentSegments(this.segments)
-
+    // Assemble the final transcript + metadata. Pure data transformation —
+    // no I/O. Handles bleed dedup, calendar-based speaker refinement, sort,
+    // adjacent-segment merging, and metadata construction. Extracted so the
+    // orchestrator stays focused on the recording state machine.
     const config = loadConfig()
-    const duration = (endTime.getTime() - this.startTime!.getTime()) / 1000
-
-    // Build transcript
-    const transcript: Transcript = {
+    const { metadata, transcript } = assembleTranscript({
       segments: this.segments,
-      duration,
-      provider: this.sttProvider?.name ?? 'deepgram',
-      model: config.stt.deepgram.model,
-      language: config.stt.deepgram.language
-    }
-
-    // Build metadata — use calendar event title if matched
-    const title = this.calendarMatch
-      ? this.calendarMatch.event.title
-      : `Unscheduled call — ${this.startTime!.toLocaleDateString()} ${this.startTime!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    const slug = generateSlug(title, this.sessionId!)
-
-    const metadata: MeetingMetadata = {
-      id: this.sessionId!,
-      title,
-      slug,
-      startTime: this.startTime!.toISOString(),
-      endTime: endTime.toISOString(),
-      duration,
-      calendarEvent: this.calendarMatch?.event,
-      speakers: this.speakerIdentifier?.getSpeakers() ?? [],
-      summarized: false,
-      sttProvider: 'deepgram',
-      files: {
-        metadata: 'metadata.json',
-        transcript_json: 'transcript.json',
-        transcript_md: 'transcript.md'
-      }
-    }
+      speakerIdentifier: this.speakerIdentifier,
+      startTime: this.startTime!,
+      endTime,
+      sessionId: this.sessionId!,
+      calendarMatch: this.calendarMatch,
+      sttProvider: this.sttProvider?.name ?? 'deepgram',
+      sttModel: config.stt.deepgram.model,
+      sttLanguage: config.stt.deepgram.language
+    })
 
     log.info(
-      `[Pipeline] Session complete: ${this.segments.length} segments, ` +
-        `${duration.toFixed(1)}s duration, ${metadata.speakers.length} speakers`
+      `[Pipeline] Session complete: ${transcript.segments.length} segments, ` +
+        `${transcript.duration.toFixed(1)}s duration, ${metadata.speakers.length} speakers`
     )
 
     // Write files to disk and index in SQLite
     try {
       const meetingDir = writeMeetingFiles(metadata, transcript)
-      const transcriptText = this.segments.map((s) => `${s.speaker}: ${s.text}`).join('\n')
+      const transcriptText = transcript.segments.map((s) => `${s.speaker}: ${s.text}`).join('\n')
       indexMeeting(metadata, meetingDir, transcriptText)
       log.info(`[Pipeline] Meeting saved to ${meetingDir}`)
     } catch (err) {
@@ -428,8 +392,8 @@ export class PipelineOrchestrator {
           log.info('[Pipeline] Running summarization...')
           const speakers = metadata.speakers.map((s) => s.name)
           const { summary, actions } = await summarizer.summarize(
-            this.segments,
-            title,
+            transcript.segments,
+            metadata.title,
             speakers
           )
           writeSummaryFiles(metadata, summary, actions)
@@ -447,8 +411,6 @@ export class PipelineOrchestrator {
         // Non-fatal — meeting is still saved without summary
       }
     }
-
-    log.info(`[Pipeline] Transcript: ${this.segments.length} segments, ${metadata.duration.toFixed(1)}s`)
 
     this.setState('complete')
     this.events.onComplete?.({ metadata, transcript })
@@ -665,40 +627,6 @@ export class PipelineOrchestrator {
     }
 
     this.events.onSegment?.(segment)
-  }
-
-  /**
-   * Merge adjacent segments from the same speaker to reduce fragmentation.
-   * Deepgram sometimes splits a single utterance across multiple results.
-   */
-  private mergeAdjacentSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
-    if (segments.length <= 1) return segments
-
-    const merged: TranscriptSegment[] = [segments[0]]
-
-    for (let i = 1; i < segments.length; i++) {
-      const prev = merged[merged.length - 1]
-      const curr = segments[i]
-
-      // Merge if same speaker and gap < threshold
-      const mergeGap = loadConfig().tuning.merge_gap_threshold_sec
-      if (
-        prev.speaker === curr.speaker &&
-        prev.source === curr.source &&
-        curr.start - prev.end < mergeGap
-      ) {
-        prev.text += ' ' + curr.text
-        prev.end = curr.end
-        prev.confidence = (prev.confidence + curr.confidence) / 2
-        if (prev.words && curr.words) {
-          prev.words = [...prev.words, ...curr.words]
-        }
-      } else {
-        merged.push(curr)
-      }
-    }
-
-    return merged
   }
 
   /** Reset session state after a failure */
