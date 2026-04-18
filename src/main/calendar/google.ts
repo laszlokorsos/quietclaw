@@ -15,7 +15,7 @@ import { calendar } from '@googleapis/calendar'
 import { oauth2 } from '@googleapis/oauth2'
 import { OAuth2Client } from 'google-auth-library'
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
-import { shell } from 'electron'
+import { shell, BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import {
   getCalendarRefreshToken,
@@ -230,6 +230,7 @@ async function captureAuthCode(authUrl: string): Promise<string> {
 
     function cleanup() {
       clearTimeout(timeout)
+      clearTimeout(stallWarning)
       if (activeOAuthServer === server) {
         activeOAuthServer = null
         activeOAuthReject = null
@@ -237,14 +238,55 @@ async function captureAuthCode(authUrl: string): Promise<string> {
       server.close()
     }
 
+    // If we're still waiting at the 30s mark, log a diagnostic. The most
+    // common cause for this state is that Google's consent page never
+    // redirected back — i.e. the user saw an "Access blocked" or
+    // verification page in the browser. Surfacing it here makes the
+    // silent-spinner case self-explanatory in the log and lets us push a
+    // hint to the renderer.
+    const stallWarning = setTimeout(() => {
+      log.warn(
+        `[Calendar] OAuth has been waiting 30s without a callback — Google's ` +
+        `consent page likely blocked the flow in the browser. Common causes: ` +
+        `(1) OAuth client ID in .env was rotated and this account isn't in the ` +
+        `new client's test users list, (2) consent screen is in Internal mode ` +
+        `(Workspace-only), (3) scope not registered on the new client, or ` +
+        `(4) the browser session got stuck on a previous OAuth and didn't ` +
+        `navigate to the new auth URL.`
+      )
+      // Broadcast a hint the renderer can surface as a toast.
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('calendar-oauth-stalled', {
+          reason:
+            "Google hasn't redirected back. Check the browser — if you see " +
+            "'Access blocked' or a blank screen, your OAuth client config " +
+            'is the issue (test-users list, publishing status, or client ID).'
+        })
+      }
+    }, 30_000)
+
     const timeout = setTimeout(() => {
       cleanup()
-      reject(new Error('OAuth authorization timed out (120s)'))
+      reject(new Error(
+        'OAuth authorization timed out (120s). Google never redirected back — ' +
+        "check the browser for a block page, and verify the OAuth client ID in " +
+        "your .env matches one where this account is a registered test user."
+      ))
     }, 120000)
 
     server.listen(CALLBACK_PORT, '127.0.0.1', () => {
-      log.info(`[Calendar] OAuth callback server listening on port ${CALLBACK_PORT}`)
-      shell.openExternal(authUrl)
+      log.info(
+        `[Calendar] OAuth callback server listening on port ${CALLBACK_PORT} — ` +
+        `opening browser to Google's consent page`
+      )
+      // openExternal can fail (no default browser, etc); surface it loudly
+      // instead of letting the server sit mysteriously.
+      Promise.resolve(shell.openExternal(authUrl)).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.error('[Calendar] Failed to open OAuth URL in browser:', msg)
+        cleanup()
+        reject(new Error(`Could not open browser for OAuth: ${msg}`))
+      })
     })
     activeOAuthServer = server
 

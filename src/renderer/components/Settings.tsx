@@ -108,7 +108,18 @@ export default function Settings({
 
   useEffect(() => {
     loadState()
-  }, [])
+    if (!api) return
+    // Hint from the main process when OAuth has been waiting >30s for Google
+    // to redirect back. Otherwise the user stares at a blank spinner with no
+    // idea their browser is stuck on an Access Blocked page.
+    const unsub = api.on('calendar-oauth-stalled', (payload: unknown) => {
+      const reason =
+        (payload as { reason?: string })?.reason ??
+        "Google hasn't redirected back to QuietClaw — check the browser."
+      addToast(reason, 'error')
+    })
+    return unsub
+  }, [addToast])
 
   async function loadState() {
     if (!api) return
