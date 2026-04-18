@@ -90,14 +90,17 @@ export async function authorizeGoogleCalendar(): Promise<string> {
 
   // Start ephemeral server to capture the callback
   const code = await captureAuthCode(authUrl)
+  log.info(`[Calendar] captureAuthCode returned, code length=${code.length}`)
 
   // Exchange code for tokens. Wrap in a timeout so a slow/hung Google endpoint
   // (corporate proxy, bad network) fails loud instead of spinning the UI forever.
+  log.info('[Calendar] Calling oauth2Client.getToken()...')
   const { tokens } = await withTimeout(
     oauth2Client.getToken(code),
     20_000,
     'Timed out exchanging authorization code (20s). Check your network and try again.'
   )
+  log.info(`[Calendar] getToken returned — has refresh_token=${!!tokens.refresh_token} scope="${tokens.scope ?? ''}"`)
   oauth2Client.setCredentials(tokens)
 
   if (!tokens.refresh_token) {
@@ -119,6 +122,7 @@ export async function authorizeGoogleCalendar(): Promise<string> {
   }
 
   // Get user email — also timeout-bounded.
+  log.info('[Calendar] Fetching user email via oauth2Api.userinfo.get()...')
   const oauth2Api = oauth2({ version: 'v2', auth: oauth2Client })
   const userInfo = await withTimeout(
     oauth2Api.userinfo.get(),
@@ -126,6 +130,7 @@ export async function authorizeGoogleCalendar(): Promise<string> {
     'Timed out fetching Google user info (15s).'
   )
   const email = userInfo.data.email
+  log.info(`[Calendar] userinfo returned email=${email ?? '(none)'}`)
   if (!email) {
     throw new Error('Could not determine Google account email')
   }
@@ -232,47 +237,59 @@ async function captureAuthCode(authUrl: string): Promise<string> {
     }
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-      // Log every incoming request so we can tell from the log alone whether
-      // the browser is actually hitting our server (vs. replaying a cached
-      // response). Without this, a cache hit looks identical to a server hang.
-      log.info(
-        `[Calendar] OAuth callback hit: ${req.method} ${req.url?.slice(0, 160) ?? '/'}`
-      )
+      // Defensive: wrap the whole handler so any sync throw logs instead of
+      // disappearing into Node's silent 'clientError' emit path. Previously
+      // when something between the initial log and cleanup() threw, we'd see
+      // the "callback hit" line but nothing after, and debugging was guesswork.
+      try {
+        log.info(
+          `[Calendar] OAuth callback hit: ${req.method} ${req.url?.slice(0, 160) ?? '/'}`
+        )
 
-      const url = new URL(req.url ?? '/', `http://127.0.0.1:${CALLBACK_PORT}`)
-      if (url.pathname !== '/callback') {
-        res.writeHead(404, { 'Cache-Control': 'no-store' })
-        res.end()
-        return
-      }
+        const url = new URL(req.url ?? '/', `http://127.0.0.1:${CALLBACK_PORT}`)
+        log.info(`[Calendar] callback pathname="${url.pathname}" hasCode=${url.searchParams.has('code')} hasError=${url.searchParams.has('error')}`)
 
-      const code = url.searchParams.get('code')
-      const error = url.searchParams.get('error')
+        if (url.pathname !== '/callback') {
+          res.writeHead(404, { 'Cache-Control': 'no-store' })
+          res.end()
+          return
+        }
 
-      if (error) {
-        sendHtml(res, '<html><body><h2>Authorization denied</h2><p>You can close this window.</p></body></html>')
+        const code = url.searchParams.get('code')
+        const error = url.searchParams.get('error')
+
+        if (error) {
+          sendHtml(res, '<html><body><h2>Authorization denied</h2><p>You can close this window.</p></body></html>')
+          cleanup()
+          reject(new Error(`OAuth error: ${error}`))
+          return
+        }
+
+        if (!code) {
+          sendHtml(res, '<html><body><h2>Error</h2><p>No authorization code received.</p></body></html>')
+          cleanup()
+          reject(new Error('No authorization code in callback'))
+          return
+        }
+
+        log.info('[Calendar] callback: sending success HTML')
+        sendHtml(
+          res,
+          '<html><body style="font-family:system-ui;text-align:center;padding:60px">' +
+            '<h2>Calendar connected!</h2>' +
+            '<p>You can close this window and return to QuietClaw.</p>' +
+            '</body></html>'
+        )
+
+        log.info('[Calendar] callback: calling cleanup + resolve')
         cleanup()
-        reject(new Error(`OAuth error: ${error}`))
-        return
+        resolve(code)
+        log.info('[Calendar] callback: handler returned OK')
+      } catch (handlerErr) {
+        log.error('[Calendar] OAuth callback handler threw:', handlerErr)
+        try { cleanup() } catch { /* cleanup itself failing shouldn't wedge us */ }
+        reject(handlerErr instanceof Error ? handlerErr : new Error(String(handlerErr)))
       }
-
-      if (!code) {
-        sendHtml(res, '<html><body><h2>Error</h2><p>No authorization code received.</p></body></html>')
-        cleanup()
-        reject(new Error('No authorization code in callback'))
-        return
-      }
-
-      sendHtml(
-        res,
-        '<html><body style="font-family:system-ui;text-align:center;padding:60px">' +
-          '<h2>Calendar connected!</h2>' +
-          '<p>You can close this window and return to QuietClaw.</p>' +
-          '</body></html>'
-      )
-
-      cleanup()
-      resolve(code)
     })
 
     function cleanup() {
