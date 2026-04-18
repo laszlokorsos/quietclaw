@@ -77,6 +77,17 @@ export async function authorizeGoogleCalendar(): Promise<string> {
     prompt: 'select_account consent'
   })
 
+  // Log enough of the auth URL to verify it's well-formed and points at the
+  // client we expect. Full URL contains the state parameter (short-lived
+  // nonce), so it's safe to log without leaking secrets — client_secret is
+  // never in the URL. Helps diagnose "second OAuth attempt silently stalls"
+  // scenarios where Google's browser-side behavior differs between flows.
+  const clientIdTail = CLIENT_ID.slice(-10)
+  log.info(
+    `[Calendar] OAuth URL: ${authUrl.slice(0, 120)}... ` +
+    `(client_id ends ...${clientIdTail})`
+  )
+
   // Start ephemeral server to capture the callback
   const code = await captureAuthCode(authUrl)
 
