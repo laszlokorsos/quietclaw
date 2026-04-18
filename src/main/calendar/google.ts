@@ -179,19 +179,27 @@ export function abortGoogleAuth(): void {
  * Returns the authorization code.
  */
 async function captureAuthCode(authUrl: string): Promise<string> {
-  // Clean up any lingering server from a previous cancelled attempt.
-  // `server.close()` is asynchronous — the port isn't released until all
-  // open sockets drain and the close callback fires. We used to call close()
-  // synchronously and then immediately listen() on the same port on the new
-  // server, which races the OS-level port release. When the bind failed the
-  // next OAuth flow would EADDRINUSE and the UI would appear to hang.
+  // Clean up any lingering server from a previous flow.
+  //
+  // server.close() stops accepting NEW connections but leaves existing
+  // keep-alive connections open. The real-world bug that bit us: after a
+  // successful first OAuth, the browser keeps the TCP connection to
+  // 127.0.0.1:19833 alive (HTTP/1.1 default). When the user starts a second
+  // OAuth and Google redirects back, the browser REUSES that old connection
+  // — the request hits the OLD server's request handler, which sends back
+  // our cached "Calendar connected!" HTML and resolves its already-resolved
+  // promise (no-op). The NEW server never gets the callback. The UI hangs.
+  //
+  // closeAllConnections() (Node 18.2+) forcefully kills keep-alive sockets
+  // so the browser has to open a fresh connection to the new server. We
+  // also set 'Connection: close' on responses (see sendHtml below) so the
+  // browser never tries to reuse in the first place.
   if (activeOAuthServer) {
     const server = activeOAuthServer
     activeOAuthServer = null
+    server.closeAllConnections?.()
     await new Promise<void>((resolve) => {
       server.close(() => resolve())
-      // Safety fallback if close() never fires (no open connections + quirky
-      // Node version). 2s is plenty; listen() will error loud if still busy.
       setTimeout(() => resolve(), 2000)
     })
   }
@@ -204,7 +212,15 @@ async function captureAuthCode(authUrl: string): Promise<string> {
     activeOAuthReject = reject
 
     function sendHtml(res: ServerResponse, html: string) {
-      res.writeHead(200, { 'Content-Type': 'text/html' })
+      // 'Connection: close' prevents the browser from keeping this TCP
+      // connection alive. Without it, the browser reuses the socket on a
+      // later redirect, the request hits a previous flow's server (still
+      // tracking the live socket), and the new flow's server never gets
+      // the callback — UI hangs forever. This one header is the fix.
+      res.writeHead(200, {
+        'Content-Type': 'text/html',
+        'Connection': 'close'
+      })
       res.end(html)
     }
 
