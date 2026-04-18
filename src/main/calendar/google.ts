@@ -15,6 +15,7 @@ import { calendar } from '@googleapis/calendar'
 import { oauth2 } from '@googleapis/oauth2'
 import { OAuth2Client } from 'google-auth-library'
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
+import { randomBytes } from 'node:crypto'
 import { shell, BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import {
@@ -213,6 +214,13 @@ async function captureAuthCode(authUrl: string): Promise<string> {
     activeOAuthReject = null
   }
 
+  // Short random ID scoped to this captureAuthCode invocation. Tagging every
+  // log line with it proves which closure handled a given callback — the root
+  // cause of the "second OAuth hangs" bug turned out to be a zombie keep-alive
+  // socket from flow #1 receiving flow #2's request, so #1's closure ran,
+  // #2's Promise was never touched, and the stall warning fired 30s later.
+  const flowId = randomBytes(3).toString('hex')
+
   return new Promise<string>((resolve, reject) => {
     activeOAuthReject = reject
 
@@ -247,7 +255,7 @@ async function captureAuthCode(authUrl: string): Promise<string> {
         )
 
         const url = new URL(req.url ?? '/', `http://127.0.0.1:${CALLBACK_PORT}`)
-        log.info(`[Calendar] callback pathname="${url.pathname}" hasCode=${url.searchParams.has('code')} hasError=${url.searchParams.has('error')}`)
+        log.info(`[Calendar] [${flowId}] callback pathname="${url.pathname}" hasCode=${url.searchParams.has('code')} hasError=${url.searchParams.has('error')}`)
 
         if (url.pathname !== '/callback') {
           res.writeHead(404, { 'Cache-Control': 'no-store' })
@@ -272,7 +280,7 @@ async function captureAuthCode(authUrl: string): Promise<string> {
           return
         }
 
-        log.info('[Calendar] callback: sending success HTML')
+        log.info('[Calendar] [${flowId}] callback: sending success HTML')
         sendHtml(
           res,
           '<html><body style="font-family:system-ui;text-align:center;padding:60px">' +
@@ -281,10 +289,10 @@ async function captureAuthCode(authUrl: string): Promise<string> {
             '</body></html>'
         )
 
-        log.info('[Calendar] callback: calling cleanup + resolve')
+        log.info('[Calendar] [${flowId}] callback: calling cleanup + resolve')
         cleanup()
         resolve(code)
-        log.info('[Calendar] callback: handler returned OK')
+        log.info('[Calendar] [${flowId}] callback: handler returned OK')
       } catch (handlerErr) {
         log.error('[Calendar] OAuth callback handler threw:', handlerErr)
         try { cleanup() } catch { /* cleanup itself failing shouldn't wedge us */ }
@@ -299,6 +307,17 @@ async function captureAuthCode(authUrl: string): Promise<string> {
         activeOAuthServer = null
         activeOAuthReject = null
       }
+      // CRITICAL: closeAllConnections() before close() forcefully terminates
+      // every keep-alive socket still bound to this server. Without it,
+      // server.close() only stops accepting NEW connections; existing
+      // keep-alive sockets from the browser stay open and continue delivering
+      // requests to THIS server's handler — even after this flow has
+      // resolved. When the next OAuth redirect arrives, it lands on this
+      // (resolved) flow's closure, calls resolve() on an already-resolved
+      // Promise (no-op), and the new flow's Promise never sees a callback.
+      // Connection: close in the response header is advisory and the browser
+      // doesn't always honor it fast enough. This call is the hard kill.
+      server.closeAllConnections?.()
       server.close()
     }
 
@@ -340,7 +359,7 @@ async function captureAuthCode(authUrl: string): Promise<string> {
 
     server.listen(CALLBACK_PORT, '127.0.0.1', () => {
       log.info(
-        `[Calendar] OAuth callback server listening on port ${CALLBACK_PORT} — ` +
+        `[Calendar] [${flowId}] OAuth callback server listening on port ${CALLBACK_PORT} — ` +
         `opening browser to Google's consent page`
       )
       // openExternal can fail (no default browser, etc); surface it loudly
