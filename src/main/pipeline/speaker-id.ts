@@ -1,13 +1,11 @@
 /**
  * Speaker identification — maps raw STT results to named speakers.
  *
- * Phase 1 (MVP):
- *   - Channel 0 (mic) = you, labeled with your name
- *   - Channel 1 (system) = other participants, labeled Speaker A/B/C
- *   - For 2-person calls: the one other speaker is auto-named from calendar
- *
- * Phase 2: Manual speaker mapping UI (post-meeting name assignment)
- * Phase 3: Voice fingerprint database (automatic learning)
+ * Channel 0 (mic) is always the user, labeled with their name.
+ * Channel 1 (system) contains other participants, diarized by Deepgram
+ * into Speaker A, Speaker B, etc. For 2-person calls with a single calendar
+ * attendee, that speaker is auto-named from the calendar. 3+ person calls
+ * keep generic labels; users can reassign names in the meeting-detail UI.
  */
 
 import log from 'electron-log/main'
@@ -202,10 +200,12 @@ export class SpeakerIdentifier {
       })
     }
 
-    // For 3+ person calls: speakers stay as Speaker A/B/C for now (Phase 2 adds manual mapping)
+    // For 3+ person calls we can't auto-name confidently — too many ways the
+    // diarized indices could map to attendees. The UI lets the user reassign
+    // names from the meeting-detail view.
     log.info(
       `[SpeakerID] ${uniqueSystemSpeakers.size} system speakers, ` +
-        `${otherAttendees.length} attendees — using letter labels (manual mapping in Phase 2)`
+        `${otherAttendees.length} attendees — using letter labels (reassign from UI)`
     )
 
     return segments

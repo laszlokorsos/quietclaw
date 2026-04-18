@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useToast } from '../contexts/ToastContext'
 import type { ThemePreference } from '../hooks/useTheme'
 
-const api = (window as any).quietclaw
+const api = window.quietclaw
 
 const PERSONAL_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',

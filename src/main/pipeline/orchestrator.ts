@@ -244,8 +244,8 @@ export class PipelineOrchestrator {
 
     // Start audio capture with echo cancellation (Apple Voice Processing IO
     // cancels speaker bleed from mic using system audio output as a reference).
-    // VPIO downsamples the mic to 16 kHz internally — the orchestrator now
-    // matches sample rates to what VPIO actually delivers (see Phase A).
+    // VPIO downsamples the mic to 16 kHz internally — we match the transport
+    // sample rate to what VPIO actually delivers rather than upsampling it.
     await this.audioCapture.startCapture({
       sampleRate: config.audio.sample_rate,
       captureSystemAudio: true,
@@ -355,7 +355,9 @@ export class PipelineOrchestrator {
       this.segments = this.speakerIdentifier.deduplicateBleed(this.segments)
     }
 
-    // Refine speaker names with calendar data (Phase 1: basic, Phase 4: full calendar)
+    // Refine speaker names using calendar attendees. Currently auto-names the
+    // single other speaker on 2-person calls; larger meetings keep generic
+    // labels for the user to reassign.
     if (this.speakerIdentifier) {
       this.segments = this.speakerIdentifier.refineWithCalendar(this.segments)
     }

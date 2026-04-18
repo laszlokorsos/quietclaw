@@ -3,7 +3,7 @@ import RecoveryBanner from './RecoveryBanner'
 import { useToast } from '../contexts/ToastContext'
 import type { SessionInfo } from '../App'
 
-const api = (window as any).quietclaw
+const api = window.quietclaw
 
 /** Official brand logos as data URIs (from Wikimedia Commons / brand guidelines) */
 const PLATFORM_ICONS: Record<string, string> = {

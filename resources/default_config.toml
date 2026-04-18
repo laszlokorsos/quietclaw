@@ -3,11 +3,11 @@
 
 [general]
 data_dir = "~/.quietclaw/meetings"
-retain_audio = false               # Audio files are large; enable only if you need playback
-audio_format = "opus"              # opus (tiny, lossy) | flac (lossless) | wav (uncompressed)
-audio_retention_days = 30          # Only applies when retain_audio = true
 markdown_output = true             # Generate human-readable .md files alongside JSON
 launch_at_login = true             # Start QuietClaw automatically when you log in
+# user_name = "Your Name"          # Override the display name for your mic segments.
+                                   # Empty / unset = auto-detect from calendar self-attendee,
+                                   # config, $USER, then "Me".
 
 [audio]
 sample_rate = 16000                # Hz — matches what Apple Voice Processing (VPIO) actually
@@ -29,11 +29,6 @@ bleed_min_words = 2                # Skip bleed dedup for very short segments
 merge_gap_threshold_sec = 1.0      # Merge adjacent same-speaker segments if gap < this
 meeting_debounce_count = 3         # Consecutive "missed" polls before stopping auto-record
 
-[consent]
-auto_message_enabled = false       # Auto-send a consent message in meeting chat
-auto_message_text = "I'm using QuietClaw to transcribe this meeting for my notes."
-platforms = ["google_meet", "zoom"]
-
 # Add calendar accounts here, or use the UI to connect them via OAuth.
 # [[calendar.accounts]]
 # label = "Work"
@@ -48,7 +43,8 @@ use_for_auto_detect = true
 use_for_speaker_id = true
 
 [stt]
-provider = "deepgram"              # deepgram (MVP). Additional providers in Phase 2.
+provider = "deepgram"              # deepgram | assemblyai (AssemblyAI is the automatic fallback
+                                   # when Deepgram fails to connect — both keys can be set.)
 
 [stt.deepgram]
 model = "nova-3"
@@ -57,16 +53,12 @@ diarize = true
 
 [summarization]
 enabled = true                     # Set to false for raw transcript only
-provider = "anthropic"             # anthropic | openai | ollama
+provider = "anthropic"             # Only "anthropic" is supported today
 model = "claude-haiku-4-5-20251001"
-custom_prompt = ""
-extract_actions = true
-extract_decisions = true
-extract_topics = true
-
-[summarization.ollama]
-endpoint = "http://localhost:11434"
-model = "llama3.1"
+custom_prompt = ""                 # Override the built-in prompt. Leave empty to use the default.
+                                   # The default is tuned for meeting notes with action items,
+                                   # decisions, topics, and a sentiment summary. Also editable
+                                   # from Settings → Summarization in the app.
 
 [notifications]
 on_meeting_processed = true

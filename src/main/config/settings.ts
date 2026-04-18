@@ -53,7 +53,7 @@ export interface TuningConfig {
 }
 
 export interface SttConfig {
-  provider: 'deepgram' | 'assemblyai' | 'openai_whisper' | 'whisper_local'
+  provider: 'deepgram' | 'assemblyai'
   deepgram: {
     model: string
     language: string
@@ -63,22 +63,10 @@ export interface SttConfig {
 
 export interface SummarizationConfig {
   enabled: boolean
-  provider: 'anthropic' | 'openai' | 'ollama'
+  provider: 'anthropic'
   model: string
+  /** Override the built-in summarization prompt. Empty string = use default. */
   custom_prompt: string
-  extract_actions: boolean
-  extract_decisions: boolean
-  extract_topics: boolean
-  ollama: {
-    endpoint: string
-    model: string
-  }
-}
-
-export interface ConsentConfig {
-  auto_message_enabled: boolean
-  auto_message_text: string
-  platforms: string[]
 }
 
 export interface NotificationsConfig {
@@ -89,9 +77,6 @@ export interface NotificationsConfig {
 export interface AppConfig {
   general: {
     data_dir: string
-    retain_audio: boolean
-    audio_format: 'opus' | 'flac' | 'wav'
-    audio_retention_days: number
     markdown_output: boolean
     onboarding_complete: boolean
     theme: 'system' | 'light' | 'dark'
@@ -101,7 +86,6 @@ export interface AppConfig {
   }
   audio: AudioConfig
   tuning: TuningConfig
-  consent: ConsentConfig
   calendar: {
     accounts: CalendarAccountConfig[]
     settings: CalendarSettingsConfig
@@ -123,9 +107,6 @@ function getDefaults(): AppConfig {
   return {
     general: {
       data_dir: DEFAULT_DATA_DIR,
-      retain_audio: false,
-      audio_format: 'opus',
-      audio_retention_days: 30,
       markdown_output: true,
       onboarding_complete: false,
       theme: 'dark' as const,
@@ -151,11 +132,6 @@ function getDefaults(): AppConfig {
       merge_gap_threshold_sec: 1.0,
       meeting_debounce_count: 3
     },
-    consent: {
-      auto_message_enabled: false,
-      auto_message_text: "I'm using QuietClaw to transcribe this meeting for my notes.",
-      platforms: ['google_meet', 'zoom']
-    },
     calendar: {
       accounts: [],
       settings: {
@@ -177,14 +153,7 @@ function getDefaults(): AppConfig {
       enabled: true,
       provider: 'anthropic',
       model: 'claude-haiku-4-5-20251001',
-      custom_prompt: '',
-      extract_actions: true,
-      extract_decisions: true,
-      extract_topics: true,
-      ollama: {
-        endpoint: 'http://localhost:11434',
-        model: 'llama3.1'
-      }
+      custom_prompt: ''
     },
     notifications: {
       on_meeting_processed: true,

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useToast } from '../contexts/ToastContext'
 import SpeakerMapping from './SpeakerMapping'
 
-const api = (window as any).quietclaw
+const api = window.quietclaw
 
 interface Segment {
   speaker: string

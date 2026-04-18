@@ -23,7 +23,7 @@ export interface SessionInfo {
   }
 }
 
-const api = (window as any).quietclaw
+const api = window.quietclaw
 
 /** Inline SVG claw icon — matches the tray icon identity */
 function ClawIcon({ className }: { className?: string }) {

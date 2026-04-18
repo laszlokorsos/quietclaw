@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
-const api = (window as any).quietclaw
+const api = window.quietclaw
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 export type ResolvedTheme = 'light' | 'dark'
