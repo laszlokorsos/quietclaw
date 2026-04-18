@@ -12,6 +12,9 @@
 
 import { app, BrowserWindow, Notification, shell, dialog, nativeTheme } from 'electron'
 import { join } from 'node:path'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import log from 'electron-log/main'
 import { initLogger } from './logger'
@@ -31,6 +34,103 @@ import type { AudioCaptureProvider } from './audio/types'
 let mainWindow: BrowserWindow | null = null
 let audioCapture: AudioCaptureProvider | null = null
 let orchestrator: PipelineOrchestrator | null = null
+
+// ---------------------------------------------------------------------------
+// Single-instance enforcement
+//
+// All QuietClaw processes share `~/.quietclaw/` (SQLite DB, encrypted secrets,
+// logs). Running two simultaneously causes two classes of havoc:
+//   1. safeStorage keys differ between a signed installed build and an
+//      unsigned dev build, so tokens written by one can't be decrypted by
+//      the other — calendar OAuth appears to "work then randomly break".
+//   2. SQLite WAL + multiple writers → corruption under load.
+//
+// Electron's app.requestSingleInstanceLock() catches the common case of
+// double-clicking the same build. It does NOT catch different builds (dev
+// vs installed) because it keys off app name. A PID file in ~/.quietclaw/
+// covers that, since both builds write there.
+// ---------------------------------------------------------------------------
+
+const LOCK_FILE = path.join(os.homedir(), '.quietclaw', 'quietclaw.pid')
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false
+  try {
+    // Signal 0 probes existence without killing; throws if pid is gone.
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function acquireGlobalLock(): { acquired: boolean; existingPid?: number } {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const pid = parseInt(fs.readFileSync(LOCK_FILE, 'utf-8').trim(), 10)
+      if (isProcessAlive(pid) && pid !== process.pid) {
+        return { acquired: false, existingPid: pid }
+      }
+      // Stale lock from a crashed run — remove it.
+      fs.unlinkSync(LOCK_FILE)
+    }
+    fs.mkdirSync(path.dirname(LOCK_FILE), { recursive: true })
+    fs.writeFileSync(LOCK_FILE, String(process.pid), { mode: 0o600 })
+    return { acquired: true }
+  } catch {
+    // If lockfile management itself fails, fail open so the app still runs.
+    return { acquired: true }
+  }
+}
+
+function releaseGlobalLock(): void {
+  try {
+    if (!fs.existsSync(LOCK_FILE)) return
+    const pid = parseInt(fs.readFileSync(LOCK_FILE, 'utf-8').trim(), 10)
+    if (pid === process.pid) {
+      fs.unlinkSync(LOCK_FILE)
+    }
+  } catch {
+    // Best-effort; don't block shutdown.
+  }
+}
+
+// Belt: Electron's lock catches same-build double-launch and focuses the
+// existing window instead of opening a second one.
+if (!app.requestSingleInstanceLock()) {
+  // Another instance of this exact build is already running. Exit hard —
+  // app.quit() is async and would let the rest of this file race.
+  app.exit(0)
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+})
+
+// Suspenders: catch the cross-build case (dev vs installed) via PID file in
+// ~/.quietclaw/, since both builds share that directory regardless of app name.
+const globalLock = acquireGlobalLock()
+if (!globalLock.acquired) {
+  // Show a real dialog — silent quit here would look identical to a crash.
+  dialog.showErrorBox(
+    'QuietClaw is already running',
+    `Another QuietClaw process (PID ${globalLock.existingPid}) is already using ` +
+      `~/.quietclaw/. Running two at once corrupts the SQLite database and ` +
+      `makes encrypted secrets (OAuth tokens) unreadable to one of them.\n\n` +
+      `Quit the other instance (or kill PID ${globalLock.existingPid}) and try again.`
+  )
+  app.exit(0)
+}
+
+// Clean up the PID file on every normal shutdown path.
+app.on('will-quit', releaseGlobalLock)
+process.on('exit', releaseGlobalLock)
+process.on('SIGINT', () => { releaseGlobalLock(); process.exit(0) })
+process.on('SIGTERM', () => { releaseGlobalLock(); process.exit(0) })
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
