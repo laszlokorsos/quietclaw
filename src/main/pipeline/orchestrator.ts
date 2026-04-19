@@ -173,16 +173,15 @@ export class PipelineOrchestrator {
 
     log.info(`[Pipeline] Starting session ${this.sessionId}`)
 
-    // Check Screen Recording permission before attempting capture
-    const hasPermission = await this.audioCapture.hasPermission()
-    if (!hasPermission) {
-      const err = new Error(
-        'Screen Recording permission not granted. Open System Settings → Privacy & Security → Screen Recording and enable QuietClaw.'
-      )
-      log.error('[Pipeline]', err.message)
-      this.setState('idle')
-      throw err
-    }
+    // Previously we pre-gated on `this.audioCapture.hasPermission()` which
+    // calls CGPreflightScreenCaptureAccess(). That API identifies apps by
+    // bundle ID + code-sign identity and returns false-negatives for
+    // unsigned builds whose identity drifts between DMGs — so users who
+    // HAD granted permission were told "permission not granted" and couldn't
+    // record. The authoritative check is the SCShareableContent call inside
+    // the native StartSystemCapture path. If that fails we log it and the
+    // user gets mic-only capture; the pre-gate added nothing but false
+    // blockers.
 
     // Sync calendar and try to match current recording to an event
     let attendees: CalendarAttendee[] = []

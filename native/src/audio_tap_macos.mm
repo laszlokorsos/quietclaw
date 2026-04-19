@@ -295,7 +295,16 @@ void AudioTapMacOS::StartSystemCapture(uint32_t sampleRate) {
             onScreenWindowsOnly:NO
             completionHandler:^(SCShareableContent* content, NSError* error) {
                 if (error || !content) {
-                    NSLog(@"[QuietClaw] Failed to get shareable content: %@", error);
+                    // Most common cause: Screen Recording permission wasn't
+                    // actually granted to this code-signed identity (TCC
+                    // tracks apps by bundle+signature; unsigned builds
+                    // drift). Mic still works; system audio won't. Log the
+                    // specifics so the user's quietclaw.log reveals whether
+                    // the cause was TCC (domain = com.apple.ScreenCaptureKit,
+                    // code 3 "declined") or something else entirely.
+                    NSLog(@"[QuietClaw] SCShareableContent failed — system audio will not be captured. "
+                          @"Error domain=%@ code=%ld: %@",
+                          error.domain, (long)error.code, error.localizedDescription);
                     return;
                 }
 
