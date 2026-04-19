@@ -13,12 +13,10 @@ export interface CaptureOptions {
   captureSystemAudio: boolean
   /** Whether to capture microphone (you) */
   captureMicrophone: boolean
-  /** Enable Apple Voice Processing echo cancellation on mic (default: true) */
+  /** Run WebRTC AEC3 on the mic path with system audio as echo reference (default: true) */
   enableEchoCancellation?: boolean
-  /** Enable automatic gain control when echo cancellation is on (default: true) */
+  /** Enable gain controller on the AEC3-cleaned mic (default: true) */
   enableAGC?: boolean
-  /** Skip echo cancellation when headphones are detected (default: true) */
-  disableEchoCancellationOnHeadphones?: boolean
 }
 
 export interface AudioChunk {

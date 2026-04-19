@@ -39,7 +39,6 @@ export interface AudioConfig {
   buffer_flush_interval_ms: number
   echo_cancellation: boolean
   agc: boolean
-  disable_echo_cancellation_on_headphones: boolean
 }
 
 export interface TuningConfig {
@@ -112,20 +111,20 @@ function getDefaults(): AppConfig {
       user_name: ''
     },
     audio: {
-      // 16 kHz matches what Apple Voice Processing actually delivers on the mic.
-      // Requesting 48 kHz forces a linear-interp upsample of VPIO's 16 kHz output,
-      // which feeds Deepgram zero-padded spectrum — worse for STT, not better.
-      sample_rate: 16000,
+      // 48 kHz is the native Core Audio rate on modern Macs. WebRTC AEC3 (the
+      // echo canceller in our native addon) runs at full bandwidth, so the STT
+      // provider sees the 8–24 kHz band that Nova-3 / AssemblyAI v3 rely on
+      // for sibilants and consonant detail.
+      sample_rate: 48000,
       buffer_flush_interval_ms: 200,
       echo_cancellation: true,
-      agc: true,
-      disable_echo_cancellation_on_headphones: true
+      agc: true
     },
     tuning: {
       deepgram_utterance_end_ms: 1000,
       deepgram_endpointing_ms: 300,
       bleed_time_window_sec: 3.0,
-      bleed_similarity_threshold: 0.5,
+      bleed_similarity_threshold: 0.4,
       bleed_min_words: 2,
       merge_gap_threshold_sec: 1.0,
       meeting_debounce_count: 3

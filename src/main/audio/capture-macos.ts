@@ -127,7 +127,7 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
         reject(new Error('Audio utility process failed to start capture within 10s'))
       }, 10_000)
 
-      this.audioProcess!.on('message', (msg: { event: string; message?: string; source?: string; buffer?: Float32Array; timestamp?: number }) => {
+      this.audioProcess!.on('message', (msg: { event: string; message?: string; source?: string; buffer?: Float32Array; timestamp?: number; stats?: { active: boolean; renderChunks: number; captureChunks: number } }) => {
         if (msg.event === 'started') {
           clearTimeout(timeout)
           resolve()
@@ -141,6 +141,14 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
             timestamp: msg.timestamp!
           }
           this.callback(chunk)
+        } else if (msg.event === 'aec3-stats' && msg.stats) {
+          const s = msg.stats
+          // Each chunk = 10ms of audio. Expected on an active call: both counters
+          // climbing at ~500 per 5s poll. If renderChunks stays at 0 or lags far
+          // behind captureChunks, the echo reference path isn't working.
+          log.info(
+            `[AEC3] active=${s.active} render=${s.renderChunks} capture=${s.captureChunks}`
+          )
         }
       })
 
@@ -157,8 +165,7 @@ export class MacOSAudioCapture implements AudioCaptureProvider {
           sampleRate: options.sampleRate,
           tempFilePath: this.tempFilePath,
           enableEchoCancellation: options.enableEchoCancellation ?? true,
-          enableAGC: options.enableAGC ?? true,
-          disableEchoCancellationOnHeadphones: options.disableEchoCancellationOnHeadphones ?? true
+          enableAGC: options.enableAGC ?? true
         }
       })
     })

@@ -32,13 +32,13 @@ interface NativeAddon {
       tempFilePath?: string
       enableEchoCancellation?: boolean
       enableAGC?: boolean
-      disableEchoCancellationOnHeadphones?: boolean
     },
     callback: (data: { source: string; buffer: Float32Array; timestamp: number }) => void
   ): void
   stopCapture(): void
   isCapturing(): boolean
   flushTempFile(): void
+  getAec3Stats(): { active: boolean; renderChunks: number; captureChunks: number }
 }
 
 let native: NativeAddon
@@ -52,6 +52,27 @@ try {
 }
 
 let capturing = false
+let aec3StatsInterval: ReturnType<typeof setInterval> | null = null
+
+function startAec3StatsPoll(): void {
+  if (aec3StatsInterval) return
+  aec3StatsInterval = setInterval(() => {
+    if (!capturing) return
+    try {
+      const stats = native.getAec3Stats()
+      process.parentPort.postMessage({ event: 'aec3-stats', stats })
+    } catch {
+      // Old addon without getAec3Stats — ignore
+    }
+  }, 5000)
+}
+
+function stopAec3StatsPoll(): void {
+  if (aec3StatsInterval) {
+    clearInterval(aec3StatsInterval)
+    aec3StatsInterval = null
+  }
+}
 
 // Listen for control messages from the main process
 process.parentPort.on('message', (msg) => {
@@ -64,8 +85,7 @@ process.parentPort.on('message', (msg) => {
           sampleRate: data.options.sampleRate,
           tempFilePath: data.options.tempFilePath,
           enableEchoCancellation: data.options.enableEchoCancellation,
-          enableAGC: data.options.enableAGC,
-          disableEchoCancellationOnHeadphones: data.options.disableEchoCancellationOnHeadphones
+          enableAGC: data.options.enableAGC
         },
         (audioData) => {
           if (!capturing) return
@@ -90,6 +110,7 @@ process.parentPort.on('message', (msg) => {
       )
 
       capturing = true
+      startAec3StatsPoll()
       process.parentPort.postMessage({ event: 'started' })
     } catch (err) {
       process.parentPort.postMessage({
@@ -103,6 +124,7 @@ process.parentPort.on('message', (msg) => {
         native.stopCapture()
         capturing = false
       }
+      stopAec3StatsPoll()
       process.parentPort.postMessage({ event: 'stopped' })
     } catch (err) {
       process.parentPort.postMessage({
@@ -127,6 +149,7 @@ process.on('disconnect', () => {
     native.stopCapture()
     capturing = false
   }
+  stopAec3StatsPoll()
   clearInterval(keepAlive)
   process.exit(0)
 })

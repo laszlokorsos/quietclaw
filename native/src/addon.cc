@@ -9,6 +9,8 @@
 #include "audio_tap_macos.h"
 #endif
 
+#include "api/audio/audio_processing.h"
+
 // Singleton audio tap instance
 #ifdef __APPLE__
 static std::unique_ptr<AudioTapMacOS> g_audioTap;
@@ -84,7 +86,7 @@ Napi::Value StartCapture(const Napi::CallbackInfo& info) {
     }
 
     Napi::Object options = info[0].As<Napi::Object>();
-    uint32_t sampleRate = 16000;
+    uint32_t sampleRate = 48000;
     if (options.Has("sampleRate")) {
         sampleRate = options.Get("sampleRate").As<Napi::Number>().Uint32Value();
     }
@@ -99,11 +101,6 @@ Napi::Value StartCapture(const Napi::CallbackInfo& info) {
         enableAGC = options.Get("enableAGC").As<Napi::Boolean>().Value();
     }
 
-    bool disableEchoCancellationOnHeadphones = true;
-    if (options.Has("disableEchoCancellationOnHeadphones")) {
-        disableEchoCancellationOnHeadphones = options.Get("disableEchoCancellationOnHeadphones").As<Napi::Boolean>().Value();
-    }
-
     if (options.Has("tempFilePath")) {
         std::string tempPath = options.Get("tempFilePath").As<Napi::String>().Utf8Value();
         g_audioTap->SetTempFilePath(tempPath);
@@ -114,7 +111,7 @@ Napi::Value StartCapture(const Napi::CallbackInfo& info) {
         env, callback, "audioCallback", 0, 1);
 
     g_audioTap->StartCapture(sampleRate, enableEchoCancellation, enableAGC,
-                             disableEchoCancellationOnHeadphones, std::move(tsfn));
+                             std::move(tsfn));
 #else
     Napi::Error::New(env, "Audio capture not available on this platform").ThrowAsJavaScriptException();
 #endif
@@ -205,8 +202,41 @@ Napi::Value IsMeetingDetectionActive(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, false);
 }
 
+Napi::Value AecSelfTest(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    auto apm = webrtc::AudioProcessingBuilder().Create();
+    return Napi::Boolean::New(env, apm != nullptr);
+}
+
+// getAec3Stats() -> { active: boolean, renderChunks: number, captureChunks: number }
+// active=false means AEC3 isn't running (no capture in progress, echo cancellation
+// disabled in config, or headphones detected). When active, each chunk is 10ms of
+// audio, so renderChunks should climb at ~100/sec on an active call. A large gap
+// between renderChunks and captureChunks (or renderChunks stuck at 0) means the
+// reference-signal path isn't working and AEC3 has nothing to subtract with.
+Napi::Value GetAec3Stats(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    Napi::Object obj = Napi::Object::New(env);
+#ifdef __APPLE__
+    if (g_audioTap) {
+        obj.Set("active", Napi::Boolean::New(env, g_audioTap->Aec3Active()));
+        obj.Set("renderChunks",
+                Napi::Number::New(env, static_cast<double>(g_audioTap->Aec3RenderChunks())));
+        obj.Set("captureChunks",
+                Napi::Number::New(env, static_cast<double>(g_audioTap->Aec3CaptureChunks())));
+        return obj;
+    }
+#endif
+    obj.Set("active", Napi::Boolean::New(env, false));
+    obj.Set("renderChunks", Napi::Number::New(env, 0));
+    obj.Set("captureChunks", Napi::Number::New(env, 0));
+    return obj;
+}
+
 // Module initialization
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    exports.Set("aecSelfTest", Napi::Function::New(env, AecSelfTest));
+    exports.Set("getAec3Stats", Napi::Function::New(env, GetAec3Stats));
     exports.Set("isAvailable", Napi::Function::New(env, IsAvailable));
     exports.Set("hasPermission", Napi::Function::New(env, HasPermission));
     exports.Set("requestPermissions", Napi::Function::New(env, RequestPermissions));

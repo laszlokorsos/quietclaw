@@ -53,15 +53,13 @@ This also gives us:
 2. **Provider flexibility.** AssemblyAI's real-time API doesn't support multichannel. Two mono connections work with any provider.
 3. **Selective diarization.** No point running diarization on a single-speaker mic channel — we skip it entirely, saving compute and avoiding false speaker splits.
 
-### Sample Rate: 16kHz (matched to VPIO's realized rate)
+### Sample Rate: 48 kHz (native, preserved end-to-end)
 
-The initial design ran everything at 48 kHz, figuring that Deepgram nova-3 handles 48 kHz natively and Core Audio delivers 48 kHz by default, so "we don't downsample" felt like a free win. It turned out not to be true for the mic path.
+Mic and system audio both run at 48 kHz from capture through STT. Core Audio delivers 48 kHz natively on modern Macs; ScreenCaptureKit honors the requested rate on the system path; Deepgram Nova-3 and AssemblyAI v3 both accept 48 kHz linear PCM without resampling.
 
-Apple's Voice Processing I/O unit — which we enable to get industrial-grade echo cancellation — reconfigures the input node to its internal voice-processing bandwidth (16 kHz on the devices we tested). If we *request* 48 kHz from Deepgram, we have to upsample VPIO's 16 kHz output. Linear-interp upsampling adds no information above the source Nyquist; we'd just be feeding Deepgram zero-padded spectrum. So we match the transport rate to what VPIO actually delivers.
+The reason to keep the full rate — rather than downsample to 16 kHz for speech — is the 8–24 kHz band. Modern STT models trained on studio-quality speech use sibilant energy (/s/, /sh/, /f/) and consonant onsets well above 8 kHz. Downsampling clips that information; you can hear the difference on "six", "stations", "statistics".
 
-16 kHz is the right bandwidth for speech after AEC anyway — it covers up to 8 kHz, well above the roughly 4 kHz fundamentals-and-formants range that carries phonetic information. The system audio path (which doesn't go through VPIO) also runs at 16 kHz for transport simplicity; ScreenCaptureKit honors the requested rate.
-
-The architectural lesson: don't claim a fidelity win unless every link in the chain actually delivers it.
+An earlier revision ran at 16 kHz because Apple's Voice Processing I/O unit (VPIO) silently reconfigures the input node to its own voice-processing bandwidth (16 kHz on Apple silicon) when echo cancellation is enabled, so any 48 kHz request got upsampled from VPIO's 16 kHz output. We've since replaced VPIO with WebRTC AEC3 (see "Echo Cancellation" below), which runs at the native rate and returns the full band to us.
 
 ### Buffer Flush Cycle
 
@@ -124,7 +122,9 @@ After a recording ends, the speaker identifier cross-references with the calenda
 
 When you're not wearing headphones, your speakers play the other participants' audio, which your mic picks up. This creates "bleed" — the same speech appearing on both channels. Dual mono streams make this problem worse than stereo (where the STT model might figure it out from channel correlation), so we need a real solution.
 
-**Primary defense: Apple Voice Processing echo cancellation (AEC).** This is the same system-level AEC that FaceTime uses. By routing mic capture through Apple's Voice Processing I/O unit, we get industrial-grade echo cancellation before the audio ever reaches our code. It runs in the native audio pipeline, at the signal level — no text comparison, no heuristics, just clean audio.
+**Primary defense: WebRTC AEC3.** The echo canceller from the WebRTC audio-processing module, embedded in our native addon as a vendored static library (see `native/deps/webrtc-ap-prebuilt/`). It learns the acoustic echo path from a reference signal (the system audio we route to the speakers, captured via ScreenCaptureKit) and subtracts speaker-bleed from the mic before anything reaches JS. Runs at the native 48 kHz rate — no voice-processing bandwidth clamp.
+
+We used to call Apple's Voice Processing I/O (VPIO) here, which gave us AEC but silently downsampled the mic to 16 kHz. AEC3 does the same job without the downsample, so the STT provider sees the full sibilant band. This is also, not coincidentally, what Granola does — they embed the same WebRTC AEC3 module in their native layer.
 
 **Safety net: text-based bleed deduplication.** Even the best AEC isn't perfect. Open-back headphones, unusual room reflections, or AEC adaptation lag can let some bleed through. So after transcription, a post-processing pass compares mic segments against system segments. If a mic segment has high word overlap with a nearby system segment, it's marked as bleed and removed.
 
@@ -205,9 +205,8 @@ Connection timeouts (10s connect, 5s close) are intentionally **not** configurab
 [audio]
 sample_rate = 48000                          # Capture and STT sample rate
 buffer_flush_interval_ms = 200               # How often audio flushes to STT
-echo_cancellation = true                     # Apple Voice Processing AEC
+echo_cancellation = true                     # WebRTC AEC3 on the mic path
 agc = true                                   # Automatic gain control
-disable_echo_cancellation_on_headphones = true  # Skip AEC when headphones detected
 ```
 
 ---
@@ -233,8 +232,9 @@ After a recording stops, several post-processing steps run in sequence:
 
 The native Node.js addon (`native/src/`) is a thin C++/Objective-C++ layer that interfaces with macOS system APIs:
 
-- **ScreenCaptureKit** — Captures system audio (other participants) via audio taps. Requires Screen Recording permission.
-- **AVAudioEngine** — Captures microphone audio. Optionally routes through Apple Voice Processing I/O unit for echo cancellation and AGC.
+- **ScreenCaptureKit** — Captures system audio (other participants) via audio taps. Requires Screen Recording permission. This same audio is also the reference signal for AEC3.
+- **AVAudioEngine** — Captures microphone audio at the native rate. No Voice Processing I/O — we run WebRTC AEC3 ourselves so we keep the full-bandwidth mic signal instead of VPIO's 16 kHz downsampled output.
+- **WebRTC AEC3** — Embedded echo canceller + noise suppressor + AGC2 from the WebRTC audio-processing module (vendored statically, see `native/deps/webrtc-ap-prebuilt/`). Takes system audio as the echo reference and emits cleaned mic audio.
 - **SCShareableContent + NSRunningApplication** — Polls for meeting app windows (used by meeting detection).
 - **Core Audio property listeners** — Watches for microphone state changes (faster detection than polling).
 

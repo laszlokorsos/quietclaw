@@ -252,8 +252,7 @@ export class PipelineOrchestrator {
       captureSystemAudio: true,
       captureMicrophone: true,
       enableEchoCancellation: config.audio.echo_cancellation,
-      enableAGC: config.audio.agc,
-      disableEchoCancellationOnHeadphones: config.audio.disable_echo_cancellation_on_headphones
+      enableAGC: config.audio.agc
     })
 
     // Handle sleep/wake — rebuild STT from scratch after system resume.

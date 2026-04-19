@@ -8,10 +8,13 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <atomic>
 #include <mutex>
 #include <napi.h>
+
+#include "aec3_processor.h"
 
 // Callback signature for audio data delivery to JS
 using AudioCallback = Napi::ThreadSafeFunction;
@@ -31,18 +34,24 @@ public:
     bool HasPermission();
 
     // Start capturing both system and mic audio.
-    // enableEchoCancellation: use Apple Voice Processing IO for AEC on mic input.
-    // enableAGC: enable automatic gain control (only when echo cancellation is on).
-    // disableEchoCancellationOnHeadphones: skip AEC when headphones detected.
+    // enableEchoCancellation: run WebRTC AEC3 on the mic path with the
+    //   system audio as the echo reference.
+    // enableAGC: enable WebRTC's gain-controller2 on the AEC3-cleaned mic.
     void StartCapture(uint32_t sampleRate, bool enableEchoCancellation,
-                      bool enableAGC, bool disableEchoCancellationOnHeadphones,
-                      AudioCallback callback);
+                      bool enableAGC, AudioCallback callback);
 
     // Stop capturing and clean up
     void StopCapture();
 
     // Whether capture is active
     bool IsCapturing() const;
+
+    // AEC3 diagnostic counters. Both return 0 when AEC3 is not active
+    // (echo cancellation disabled, or headphones detected and AEC bypassed).
+    // Each counter increments by 1 per 10ms of audio processed.
+    uint64_t Aec3RenderChunks() const;
+    uint64_t Aec3CaptureChunks() const;
+    bool Aec3Active() const;
 
     // Called from ObjC delegates when audio arrives
     void OnSystemAudio(float* samples, size_t sampleCount, double timestamp);
@@ -65,7 +74,6 @@ private:
     void StartMicCapture(uint32_t sampleRate, bool enableEchoCancellation, bool enableAGC);
     void StopSystemCapture();
     void StopMicCapture();
-    static bool IsHeadphonesConnected();
     void DeliverAudio(const char* source, float* samples, size_t count, double timestamp);
 
     AudioCallback jsCallback_;
@@ -82,6 +90,11 @@ private:
     // pure C++).
     void* micConverter_{nullptr};
     uint32_t micConverterSrcRate_{0};
+
+    // WebRTC AEC3 pipeline. Present only when echo cancellation is enabled.
+    // System audio flows into PushRenderFrame as the reference; mic audio
+    // flows through ProcessCaptureFrame and comes out echo-cancelled.
+    std::unique_ptr<Aec3Processor> aec3_;
 
     // Temp file for crash recovery
     std::string tempFilePath_;

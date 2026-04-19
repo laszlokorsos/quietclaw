@@ -12,6 +12,7 @@ import log from 'electron-log/main'
 import type { SttResult } from './stt/provider'
 import type {
   TranscriptSegment,
+  TranscriptWord,
   SpeakerInfo,
   CalendarAttendee
 } from '../storage/models'
@@ -20,14 +21,62 @@ import type {
 const SPEAKER_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 /**
+ * Normalise text for word-overlap comparison: lowercase, strip punctuation,
+ * split on whitespace, drop 1-letter tokens. Punctuation attached to words
+ * ("maple." vs "maple") used to spoil matches.
+ */
+function tokenize(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s']/gu, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 1)
+  )
+}
+
+/** Lower-case + strip all non-letter/number characters. */
+function normaliseWord(w: string): string {
+  return w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '')
+}
+
+/**
+ * Binary-search over the sorted system word list for a word that matches
+ * `micWord` text and falls within `windowSec` of `micStart`.
+ */
+function hasAlignedSystemWord(
+  sysWords: { word: string; start: number }[],
+  micWord: string,
+  micStart: number,
+  windowSec: number
+): boolean {
+  // Binary search for the first sys word with start >= micStart - windowSec.
+  const lo = micStart - windowSec
+  const hi = micStart + windowSec
+  let left = 0
+  let right = sysWords.length
+  while (left < right) {
+    const mid = (left + right) >>> 1
+    if (sysWords[mid].start < lo) left = mid + 1
+    else right = mid
+  }
+  for (let i = left; i < sysWords.length; i++) {
+    const w = sysWords[i]
+    if (w.start > hi) break
+    if (w.word === micWord) return true
+  }
+  return false
+}
+
+/**
  * Word-overlap similarity between two text strings.
  * Uses min(|A|,|B|) as denominator so subsets score high — handles
  * Deepgram splitting the same utterance at different word boundaries.
  */
 /** @internal Exported for testing only */
 export function textSimilarity(a: string, b: string): number {
-  const wordsA = new Set(a.toLowerCase().split(/\s+/).filter((w) => w.length > 1))
-  const wordsB = new Set(b.toLowerCase().split(/\s+/).filter((w) => w.length > 1))
+  const wordsA = tokenize(a)
+  const wordsB = tokenize(b)
   if (wordsA.size === 0 && wordsB.size === 0) return 1
   if (wordsA.size === 0 || wordsB.size === 0) return 0
   let intersection = 0
@@ -113,13 +162,18 @@ export class SpeakerIdentifier {
   }
 
   /**
-   * Remove mic-channel bleed by comparing text against system-channel segments.
+   * Remove mic-channel bleed by comparing mic segments against the clean
+   * system channel.
    *
-   * The system channel is a clean digital capture of remote participants.
-   * Any mic segment that says roughly the same thing at roughly the same
-   * time as a system segment is acoustic bleed — the mic picked up what
-   * was playing through the speakers. Drop it; the system channel already
-   * has the clean version.
+   * When a user reacts ("Wait. Really?") while the other person is talking,
+   * Deepgram transcribes the mic as one utterance containing BOTH the
+   * reaction AND the bleed. Segment-level dedup would throw both away and
+   * lose the reaction. Word-level subtraction keeps only mic words that
+   * don't appear in a nearby system word, preserving the reaction.
+   *
+   * We use word timestamps when available (the normal case) and fall back
+   * to segment-level similarity when they aren't (crash-recovered segments
+   * from before word data was saved, or providers that don't emit words).
    */
   deduplicateBleed(segments: TranscriptSegment[]): TranscriptSegment[] {
     const micSegments = segments.filter((s) => s.source === 'microphone')
@@ -127,38 +181,109 @@ export class SpeakerIdentifier {
 
     if (micSegments.length === 0 || sysSegments.length === 0) return segments
 
-    // Tunable parameters — safety net behind echo cancellation.
-    // With AEC working, this should rarely fire.
     const TIME_WINDOW = this.config.bleedTimeWindowSec ?? 3.0
-    const SIMILARITY_THRESHOLD = this.config.bleedSimilarityThreshold ?? 0.5
+    const SIMILARITY_THRESHOLD = this.config.bleedSimilarityThreshold ?? 0.4
     const MIN_WORDS = this.config.bleedMinWords ?? 2
+    const WORD_ALIGN_WINDOW_SEC = 2.0 // mic echo lag vs. system timestamp
 
-    const bleedIndices = new Set<TranscriptSegment>()
+    // Flat list of system words with their start time, for word-level match.
+    const sysWords: { word: string; start: number }[] = []
+    for (const sys of sysSegments) {
+      for (const w of sys.words ?? []) {
+        sysWords.push({ word: normaliseWord(w.word), start: w.start })
+      }
+    }
+    sysWords.sort((a, b) => a.start - b.start)
 
-    for (const mic of micSegments) {
-      const micWords = mic.text.toLowerCase().split(/\s+/).filter((w) => w.length > 1)
-      if (micWords.length < MIN_WORDS) continue
+    const result: TranscriptSegment[] = []
+    let droppedSegments = 0
+    let droppedWords = 0
 
+    for (const seg of segments) {
+      if (seg.source !== 'microphone') {
+        result.push(seg)
+        continue
+      }
+
+      const micWordTokens = (seg.text.match(/\S+/g) ?? []).filter(
+        (w) => normaliseWord(w).length > 1
+      )
+      if (micWordTokens.length < MIN_WORDS) {
+        result.push(seg)
+        continue
+      }
+
+      // Word-level subtraction path — only when Deepgram gave us word timings.
+      if (seg.words && seg.words.length > 0 && sysWords.length > 0) {
+        const keptWords: TranscriptWord[] = []
+        for (const w of seg.words) {
+          const key = normaliseWord(w.word)
+          if (key.length === 0) {
+            keptWords.push(w)
+            continue
+          }
+          const isBleed = hasAlignedSystemWord(
+            sysWords,
+            key,
+            w.start,
+            WORD_ALIGN_WINDOW_SEC
+          )
+          if (isBleed) {
+            droppedWords++
+          } else {
+            keptWords.push(w)
+          }
+        }
+
+        if (keptWords.length === 0) {
+          droppedSegments++
+          continue
+        }
+        if (keptWords.length === seg.words.length) {
+          result.push(seg)
+          continue
+        }
+
+        const newText = keptWords
+          .map((w) => w.punctuated_word ?? w.word)
+          .join(' ')
+          .trim()
+        result.push({
+          ...seg,
+          text: newText,
+          words: keptWords,
+          start: keptWords[0].start,
+          end: keptWords[keptWords.length - 1].end
+        })
+        continue
+      }
+
+      // Fallback: segment-level text similarity when word timings are absent.
+      let isBleed = false
       for (const sys of sysSegments) {
-        // Check time overlap: segments within TIME_WINDOW of each other
-        if (mic.start > sys.end + TIME_WINDOW || sys.start > mic.end + TIME_WINDOW) continue
-
-        const similarity = textSimilarity(mic.text, sys.text)
-        if (similarity >= SIMILARITY_THRESHOLD) {
-          bleedIndices.add(mic)
+        if (seg.start > sys.end + TIME_WINDOW || sys.start > seg.end + TIME_WINDOW) {
+          continue
+        }
+        if (textSimilarity(seg.text, sys.text) >= SIMILARITY_THRESHOLD) {
+          isBleed = true
           break
         }
       }
+      if (isBleed) {
+        droppedSegments++
+      } else {
+        result.push(seg)
+      }
     }
 
-    if (bleedIndices.size > 0) {
+    if (droppedSegments > 0 || droppedWords > 0) {
       log.info(
-        `[SpeakerID] Bleed dedup: ${micSegments.length} mic segments, ` +
-          `${bleedIndices.size} dropped as bleed, ${micSegments.length - bleedIndices.size} kept`
+        `[SpeakerID] Bleed dedup: ${micSegments.length} mic segments — ` +
+          `${droppedSegments} dropped whole, ${droppedWords} individual words removed`
       )
     }
 
-    return segments.filter((s) => !bleedIndices.has(s))
+    return result
   }
 
   /**

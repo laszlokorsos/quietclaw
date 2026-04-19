@@ -6,12 +6,19 @@
         ["OS=='mac'", {
           "sources": [
             "src/addon.cc",
-            "src/audio_tap_macos.mm"
+            "src/audio_tap_macos.mm",
+            "src/aec3_processor.cc"
           ],
           "include_dirs": [
-            "<!@(node -p \"require('node-addon-api').include\")"
+            "<!@(node -p \"require('node-addon-api').include\")",
+            "deps/webrtc-ap-prebuilt/include/webrtc-audio-processing-2",
+            "deps/webrtc-ap-prebuilt/include/abseil"
           ],
-          "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS"],
+          "defines": [
+            "NAPI_DISABLE_CPP_EXCEPTIONS",
+            "WEBRTC_POSIX",
+            "WEBRTC_MAC"
+          ],
           "cflags!": ["-fno-exceptions"],
           "cflags_cc!": ["-fno-exceptions"],
           "xcode_settings": {
@@ -30,7 +37,8 @@
               "-framework AudioToolbox",
               "-framework AVFoundation",
               "-framework CoreMedia",
-              "-framework Foundation"
+              "-framework Foundation",
+              "<(module_root_dir)/deps/webrtc-ap-prebuilt/lib/libwebrtc-audio-processing.a"
             ]
           }
         }]

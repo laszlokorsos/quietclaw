@@ -242,23 +242,29 @@ bool AudioTapMacOS::HasPermission() {
 }
 
 void AudioTapMacOS::StartCapture(uint32_t sampleRate, bool enableEchoCancellation,
-                                  bool enableAGC, bool disableEchoCancellationOnHeadphones,
-                                  AudioCallback callback) {
+                                  bool enableAGC, AudioCallback callback) {
     if (capturing_) return;
 
     sampleRate_ = sampleRate;
     jsCallback_ = std::move(callback);
     capturing_ = true;
 
-    // Determine whether to actually enable echo cancellation
-    bool useEchoCancellation = enableEchoCancellation;
-    if (enableEchoCancellation && disableEchoCancellationOnHeadphones && IsHeadphonesConnected()) {
-        NSLog(@"[QuietClaw] Headphones detected — disabling echo cancellation");
-        useEchoCancellation = false;
+    // WebRTC AEC3 replaces Apple's VPIO. VPIO clamps the mic to 16 kHz on
+    // Apple silicon (opaque voice-processing bandwidth). AEC3 runs at the
+    // native rate, so we keep the full 48 kHz spectrum for STT while still
+    // cancelling speaker-to-mic echo. Harmless no-op on headphones (nothing
+    // to cancel), so we always run it when echo_cancellation is enabled —
+    // no heuristic trying to detect "is the user on headphones."
+    if (enableEchoCancellation) {
+        aec3_ = std::make_unique<Aec3Processor>(sampleRate, enableAGC, /*enableNs=*/true);
+        NSLog(@"[QuietClaw] AEC3 enabled (sample rate: %u Hz, AGC: %s)",
+              sampleRate, enableAGC ? "on" : "off");
+    } else {
+        NSLog(@"[QuietClaw] AEC3 disabled — raw mic capture");
     }
 
     StartSystemCapture(sampleRate);
-    StartMicCapture(sampleRate, useEchoCancellation, enableAGC);
+    StartMicCapture(sampleRate, enableEchoCancellation, enableAGC);
 }
 
 void AudioTapMacOS::StopCapture() {
@@ -365,34 +371,16 @@ void AudioTapMacOS::StartMicCapture(uint32_t sampleRate, bool enableEchoCancella
     AVAudioEngine* engine = [[AVAudioEngine alloc] init];
     AVAudioInputNode* inputNode = [engine inputNode];
 
-    // Enable Apple Voice Processing IO for echo cancellation.
-    // This uses the same Core Audio voice processing unit that Granola uses —
-    // it takes the system audio output as an echo reference and cancels speaker
-    // bleed from the mic input. Also applies noise suppression.
-    // Must be called BEFORE starting the engine.
-    if (enableEchoCancellation) {
-        NSError* vpError = nil;
-        BOOL vpOk = [inputNode setVoiceProcessingEnabled:YES error:&vpError];
-        if (vpOk) {
-            NSLog(@"[QuietClaw] Voice Processing enabled (echo cancellation active)");
-            // Configure AGC — enabled by default with VPIO, but make it configurable
-            inputNode.voiceProcessingAGCEnabled = enableAGC;
-            NSLog(@"[QuietClaw] Voice Processing AGC: %s", enableAGC ? "enabled" : "disabled");
-        } else {
-            NSLog(@"[QuietClaw] Failed to enable Voice Processing: %@", vpError);
-            NSLog(@"[QuietClaw] Continuing without echo cancellation");
-        }
-    } else {
-        NSLog(@"[QuietClaw] Voice Processing disabled — raw mic capture");
-    }
-
-    // Get the format AFTER enabling voice processing (VPIO reconfigures the
-    // input node to its internal voice-processing bandwidth — typically 16 kHz
-    // on Apple silicon). Log the realized rate so there's a clear record that
-    // the architecture is matching VPIO rather than pretending to deliver 48 kHz.
+    // Note: we intentionally do NOT call setVoiceProcessingEnabled:YES here.
+    // Apple's VPIO clamps the mic to 16 kHz on Apple silicon, which loses the
+    // 8–24 kHz band that modern STT models (Deepgram Nova-3, AssemblyAI v3)
+    // rely on. Echo cancellation is done by WebRTC AEC3 on the owner — it
+    // gets a reference signal from the SCStream system-audio tap, runs at
+    // the full configured sample rate, and produces cleaned mic audio that
+    // preserves sibilants and consonant detail.
     AVAudioFormat* inputFormat = [inputNode outputFormatForBus:0];
     uint32_t realizedMicRate = static_cast<uint32_t>(inputFormat.sampleRate);
-    NSLog(@"[QuietClaw] VPIO realized mic rate: %u Hz (target: %u Hz)%s",
+    NSLog(@"[QuietClaw] Mic native rate: %u Hz (target: %u Hz)%s",
           realizedMicRate, sampleRate,
           realizedMicRate == sampleRate ? " — no resampling needed" : " — resampling via AVAudioConverter");
 
@@ -451,6 +439,18 @@ void AudioTapMacOS::StartMicCapture(uint32_t sampleRate, bool enableEchoCancella
           sampleRate, enableEchoCancellation ? "on" : "off", enableAGC ? "on" : "off");
 }
 
+uint64_t AudioTapMacOS::Aec3RenderChunks() const {
+    return aec3_ ? aec3_->RenderFramesProcessed() : 0;
+}
+
+uint64_t AudioTapMacOS::Aec3CaptureChunks() const {
+    return aec3_ ? aec3_->CaptureFramesProcessed() : 0;
+}
+
+bool AudioTapMacOS::Aec3Active() const {
+    return aec3_ != nullptr;
+}
+
 void AudioTapMacOS::StopSystemCapture() {
     if (scStream_) {
         SCStream* stream = (__bridge_transfer SCStream*)scStream_;
@@ -480,13 +480,43 @@ void AudioTapMacOS::StopMicCapture() {
         micConverter_ = nullptr;
         micConverterSrcRate_ = 0;
     }
+    aec3_.reset();
+}
+
+// Emits a single stats line every ~5s so we can confirm the AEC3 render and
+// capture paths are both alive, and see the 10ms-chunk counts in real time.
+static void LogAec3StatsIfDue(Aec3Processor* aec3) {
+    static std::atomic<uint64_t> lastLogMs{0};
+    auto nowMs = static_cast<uint64_t>(
+        [[NSDate date] timeIntervalSince1970] * 1000.0);
+    uint64_t last = lastLogMs.load(std::memory_order_relaxed);
+    if (nowMs - last < 5000) return;
+    if (!lastLogMs.compare_exchange_strong(last, nowMs)) return;
+    NSLog(@"[QuietClaw][AEC3] render chunks=%llu, capture chunks=%llu",
+          (unsigned long long)aec3->RenderFramesProcessed(),
+          (unsigned long long)aec3->CaptureFramesProcessed());
 }
 
 void AudioTapMacOS::OnSystemAudio(float* samples, size_t sampleCount, double timestamp) {
+    // When AEC3 is active, the system audio we hear through the speakers is
+    // also the echo reference the mic picks up. Push it to APM's render path
+    // so the capture-side ProcessStream can subtract the learned echo.
+    if (aec3_) {
+        aec3_->PushRenderFrame(samples, sampleCount);
+        LogAec3StatsIfDue(aec3_.get());
+    }
     DeliverAudio("system", samples, sampleCount, timestamp);
 }
 
 void AudioTapMacOS::OnMicrophoneAudio(float* samples, size_t sampleCount, double timestamp) {
+    if (aec3_) {
+        std::vector<float> cleaned = aec3_->ProcessCaptureFrame(samples, sampleCount);
+        LogAec3StatsIfDue(aec3_.get());
+        if (!cleaned.empty()) {
+            DeliverAudio("microphone", cleaned.data(), cleaned.size(), timestamp);
+        }
+        return;
+    }
     DeliverAudio("microphone", samples, sampleCount, timestamp);
 }
 
@@ -559,38 +589,6 @@ void AudioTapMacOS::FlushToTempFile() {
 // (USB, Bluetooth, etc.) vs. built-in speakers. Used to optionally skip
 // echo cancellation when headphones are plugged in (no speaker bleed).
 // ---------------------------------------------------------------------------
-
-bool AudioTapMacOS::IsHeadphonesConnected() {
-    AudioDeviceID outputDevice = 0;
-    UInt32 size = sizeof(outputDevice);
-    AudioObjectPropertyAddress addr = {
-        .mSelector = kAudioHardwarePropertyDefaultOutputDevice,
-        .mScope = kAudioObjectPropertyScopeGlobal,
-        .mElement = kAudioObjectPropertyElementMain
-    };
-    OSStatus status = AudioObjectGetPropertyData(
-        kAudioObjectSystemObject, &addr, 0, NULL, &size, &outputDevice);
-    if (status != noErr || outputDevice == 0) return false;
-
-    // Check transport type of the output device
-    UInt32 transportType = 0;
-    size = sizeof(transportType);
-    AudioObjectPropertyAddress transportAddr = {
-        .mSelector = kAudioDevicePropertyTransportType,
-        .mScope = kAudioObjectPropertyScopeOutput,
-        .mElement = kAudioObjectPropertyElementMain
-    };
-    status = AudioObjectGetPropertyData(outputDevice, &transportAddr, 0, NULL, &size, &transportType);
-    if (status != noErr) return false;
-
-    // Built-in speakers = not headphones. Everything else (USB, Bluetooth,
-    // HDMI, Thunderbolt, etc.) is external audio = headphones/earbuds.
-    bool isExternal = transportType != kAudioDeviceTransportTypeBuiltIn;
-    if (isExternal) {
-        NSLog(@"[QuietClaw] Output device transport type: 0x%08X (external/headphones)", transportType);
-    }
-    return isExternal;
-}
 
 // ---------------------------------------------------------------------------
 // Meeting Detection — listens for mic activation, then checks which known
