@@ -63,7 +63,7 @@ export default function MeetingDetail({
   const [transcript, setTranscript] = useState<Transcript | null>(null)
   const [summary, setSummary] = useState<Summary | null>(null)
   const [actions, setActions] = useState<ActionItem[]>([])
-  const [tab, setTab] = useState<'transcript' | 'summary' | 'actions'>('transcript')
+  const [tab, setTab] = useState<'summary' | 'transcript' | 'actions'>('summary')
   const [loading, setLoading] = useState(true)
   const [summarizing, setSummarizing] = useState(false)
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
@@ -277,7 +277,7 @@ export default function MeetingDetail({
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b border-border/40">
-        {(['transcript', 'summary', 'actions'] as const).map((t) => (
+        {(['summary', 'transcript', 'actions'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
