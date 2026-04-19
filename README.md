@@ -4,11 +4,9 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 
-**Give your agents the context from every meeting.**
+**Like [Granola](https://granola.ai), but open source.**
 
-Your AI agents are blind to what happens in meetings — decisions, action items, context that could drive automation. QuietClaw silently captures your video calls, transcribes them with speaker attribution, and writes structured data that any agent or workflow can consume. No bot joins. No virtual audio device. Just quiet, local intelligence.
-
-Think of it as [Granola](https://granola.ai) but open-source and built for agents.
+Silent meeting capture for macOS: auto-records your video calls (Zoom, Meet, Teams), transcribes with speaker attribution, writes structured notes + action items to plain files on disk. No bot joins the call. No virtual audio device. No backend account. Your LLM key, your prompt, your data — local by default. Any agent that can read a file can consume meeting context.
 
 <p align="center">
   <img src="resources/screenshots/meeting-list.png" alt="QuietClaw meeting list with transcripts and calendar tags" width="720" />
@@ -81,6 +79,8 @@ Click **Settings > Google Calendar > Connect Account** to add one or more Google
 
 QuietClaw writes plain files to disk — no API server, no MCP, no integration layer. Claude Code, OpenClaw, or any agent that can read files consumes meeting data directly.
 
+**Drop-in agent skill:** the repo ships a [`SKILL.md`](SKILL.md) that documents the on-disk layout, schema, and common query patterns as a reusable skill. Point Claude Code (or any agent framework with skill auto-discovery) at it and the agent learns how to answer "what were today's meetings", "what are my open action items", "what did I decide about X" without being told where anything lives.
+
 ```bash
 # Today's meetings
 ls ~/.quietclaw/meetings/$(date +%Y-%m-%d)/
@@ -96,7 +96,7 @@ cat ~/.quietclaw/meetings/2026-04-05/weekly-standup-a1b2/actions.json
 cat ~/.quietclaw/meetings/2026-04-05/index.md
 ```
 
-Each meeting directory contains `metadata.json`, `transcript.json`, and optionally `summary.json` and `actions.json`. The Markdown files are the same data in human/LLM-readable format with YAML frontmatter.
+Each meeting directory contains `metadata.json`, `transcript.json`, and optionally `summary.json` and `actions.json`. The Markdown files are the same data in human/LLM-readable format with YAML frontmatter. Full schema and richer query examples in [`SKILL.md`](SKILL.md).
 
 ## Output Format
 
