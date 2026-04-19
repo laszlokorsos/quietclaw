@@ -100,6 +100,7 @@ export default function Settings({
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const [connectingCalendar, setConnectingCalendar] = useState(false)
+  const [calendarPendingRemove, setCalendarPendingRemove] = useState<string | null>(null)
   const [dataDir, setDataDir] = useState('')
   const [showDeepgramKey, setShowDeepgramKey] = useState(false)
   const [showAnthropicKey, setShowAnthropicKey] = useState(false)
@@ -472,7 +473,7 @@ export default function Settings({
                 <AccountRow
                   key={account.email}
                   account={account}
-                  onRemove={() => removeCalendar(account.email)}
+                  onRemove={() => setCalendarPendingRemove(account.email)}
                   onTagUpdate={(tag) => {
                     api?.calendar.updateTag(account.email, tag)
                     setCalendarAccounts((prev) =>
@@ -560,6 +561,44 @@ export default function Settings({
             })()}
           </div>
         </section>
+      )}
+
+      {/* Calendar disconnect confirmation — a misclick shouldn't silently
+          detach an account and lose the historical calendar context on every
+          meeting recorded through it. */}
+      {calendarPendingRemove && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setCalendarPendingRemove(null)}
+        >
+          <div
+            className="bg-surface-elevated rounded-xl p-5 max-w-sm mx-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-text-primary">Disconnect calendar?</h3>
+            <p className="text-sm text-text-secondary leading-relaxed">
+              {calendarPendingRemove} will no longer be synced. Past meetings linked to this account keep their calendar info on disk, but new recordings won't match events from it until you reconnect.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setCalendarPendingRemove(null)}
+                className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const email = calendarPendingRemove
+                  setCalendarPendingRemove(null)
+                  removeCalendar(email)
+                }}
+                className="px-3 py-1.5 text-sm bg-error-bg text-error-text rounded-lg hover:bg-error-border transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── About ── */}

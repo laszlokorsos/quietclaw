@@ -882,6 +882,15 @@ bool AudioTapMacOS::IsMeetingDetectionActive() const {
 }
 
 void AudioTapMacOS::CheckForActiveMeeting() {
+    // Bail before touching SCShareableContent if Screen Recording permission
+    // hasn't been granted yet. Calling SCShareableContent without permission
+    // triggers a TCC prompt EVERY time, which — combined with our 2-second
+    // poll — manifests as an unstoppable loop of "QuietClaw would like to
+    // record your screen" dialogs that the user can't dismiss fast enough.
+    // Preflight is cheap, doesn't prompt, and fires the popup exactly once
+    // during the initial requestPermissions() call instead.
+    if (!CGPreflightScreenCaptureAccess()) return;
+
     // Single SCShareableContent scan handles both native apps and browsers.
     // For browsers: look for meeting tab titles with 🔊 (active audio).
     // For native apps: look for in-meeting window titles (not home/lobby).

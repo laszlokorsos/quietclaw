@@ -42,6 +42,12 @@ mac:
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
+    # macOS TCC looks up these usage-description keys when an app first
+    # requests mic or screen-recording access. Missing keys don't stop the
+    # prompt from showing but CAN cause macOS to re-prompt on every launch
+    # (the OS treats the app as if it hasn't declared intent) — which is
+    # exactly the bug users hit when we only declared NSMicrophoneUsage.
     NSMicrophoneUsageDescription: "QuietClaw needs microphone access to capture your voice during meetings."
+    NSScreenCaptureUsageDescription: "QuietClaw needs Screen & System Audio Recording permission to capture the other participants' audio during meetings."
 dmg:
   artifactName: "${productName}-${version}.${ext}"

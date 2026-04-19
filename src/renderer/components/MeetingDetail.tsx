@@ -285,7 +285,7 @@ export default function MeetingDetail({
           <div className="bg-surface-elevated rounded-2xl p-6 max-w-sm mx-4 shadow-xl border border-border">
             <h3 className="text-base font-semibold text-text-primary mb-2">Delete this meeting?</h3>
             <p className="text-sm text-text-secondary mb-5 leading-relaxed">
-              This will permanently delete the recording, transcript, and any summary. This action cannot be undone.
+              This will permanently delete the raw audio, transcript, and summary for this meeting. This action cannot be undone.
             </p>
             <div className="flex gap-3 justify-end">
               <button
