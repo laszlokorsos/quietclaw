@@ -97,8 +97,26 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
     const url = `${DEEPGRAM_WS_URL}?${params.toString()}`
 
     return new Promise<DeepgramConnection>((resolve, reject) => {
+      // `error` + `unexpected-response` can both fire on a single failed
+      // handshake (typically on HTTP 401). Without this guard the second one
+      // would reject an already-rejected promise and clear an already-cleared
+      // timeout, producing an unhandled rejection.
+      let settled = false
+      const settleReject = (err: Error): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        reject(err)
+      }
+      const settleResolve = (c: DeepgramConnection): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        resolve(c)
+      }
+
       const timeout = setTimeout(() => {
-        reject(new Error(`Deepgram ${label} connection timeout (10s)`))
+        settleReject(new Error(`Deepgram ${label} connection timeout (10s)`))
       }, 10000)
 
       const ws = new WebSocket(url, {
@@ -110,10 +128,9 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
       const conn: DeepgramConnection = { ws, label, channelIndex, connected: false }
 
       ws.on('open', () => {
-        clearTimeout(timeout)
         conn.connected = true
         log.info(`[Deepgram] ${label} (ch${channelIndex}) connection opened — diarize=${diarize}`)
-        resolve(conn)
+        settleResolve(conn)
       })
 
       ws.on('message', (data: WebSocket.Data) => {
@@ -129,8 +146,7 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
         log.error(`[Deepgram] ${label} WebSocket error:`, err.message)
         this.errorCallback?.(err)
         if (!conn.connected) {
-          clearTimeout(timeout)
-          reject(new Error(`Deepgram ${label} connection failed: ${err.message}`))
+          settleReject(new Error(`Deepgram ${label} connection failed: ${err.message}`))
         }
       })
 
@@ -143,8 +159,7 @@ export class DeepgramStreamingProvider implements StreamingSttProvider {
           const err = new Error(msg)
           this.errorCallback?.(err)
           if (!conn.connected) {
-            clearTimeout(timeout)
-            reject(err)
+            settleReject(err)
           }
         })
       })

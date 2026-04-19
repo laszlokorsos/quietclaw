@@ -122,21 +122,28 @@ After a recording ends, the speaker identifier cross-references with the calenda
 
 When you're not wearing headphones, your speakers play the other participants' audio, which your mic picks up. This creates "bleed" — the same speech appearing on both channels. Dual mono streams make this problem worse than stereo (where the STT model might figure it out from channel correlation), so we need a real solution.
 
-**Primary defense: WebRTC AEC3.** The echo canceller from the WebRTC audio-processing module, embedded in our native addon as a vendored static library (see `native/deps/webrtc-ap-prebuilt/`). It learns the acoustic echo path from a reference signal (the system audio we route to the speakers, captured via ScreenCaptureKit) and subtracts speaker-bleed from the mic before anything reaches JS. Runs at the native 48 kHz rate — no voice-processing bandwidth clamp.
+**Primary defence: WebRTC AEC3.** The echo canceller from the WebRTC audio-processing module, embedded in our native addon as a vendored static library (see `native/deps/webrtc-ap-prebuilt/`). It takes a reference signal (the system audio we capture via ScreenCaptureKit — the same mix being played to the user's speakers), learns the acoustic echo path, and subtracts speaker-bleed from the mic before anything reaches JS. Runs at the native 48 kHz rate.
 
-We used to call Apple's Voice Processing I/O (VPIO) here, which gave us AEC but silently downsampled the mic to 16 kHz. AEC3 does the same job without the downsample, so the STT provider sees the full sibilant band. This is also, not coincidentally, what Granola does — they embed the same WebRTC AEC3 module in their native layer.
+This is the same echo canceller Chrome ships in `getUserMedia`, which is what Google Meet uses in a browser. It's the open-source baseline in this space. We deliberately chose it over Apple's Voice Processing I/O (VPIO) for two reasons:
 
-**Safety net: text-based bleed deduplication.** Even the best AEC isn't perfect. Open-back headphones, unusual room reflections, or AEC adaptation lag can let some bleed through. So after transcription, a post-processing pass compares mic segments against system segments. If a mic segment has high word overlap with a nearby system segment, it's marked as bleed and removed.
+1. **VPIO clamps the mic to 16 kHz** on Apple silicon, losing the 8–24 kHz band that modern STT models rely on.
+2. **VPIO breaks when input ≠ output device** (AirPods mic + built-in speakers is a common case), because it expects its echo reference from Apple's own output path. AEC3 sidesteps that because we feed it the reference explicitly.
 
-Two layers of defense, operating at different levels of the stack. The AEC handles 95% of cases; the text dedup catches the rest. The bleed dedup parameters are configurable because they're sensitive to hardware:
+**What AEC3 does well:** single-talk bleed suppression (when only the far-end is speaking) is at 35–45 dB attenuation — in the same quality class as Meet.
+
+**What AEC3 does less well:** double-talk (when the user speaks over the remote participant) is harder. Commercial stacks like Teams and Zoom layer a trained neural residual suppressor on top of the linear AEC (Microsoft DNS, Zoom's CNN/GRU), which buys them roughly +0.3–0.6 MOS on double-talk scenarios. We don't ship a neural post-suppressor today — we accept the residual and rely on the text-level safety net below.
+
+The architecture is deliberately set up so someone can swap in a better residual suppressor without rearchitecting. [DeepFilterNet 3](https://github.com/Rikorose/DeepFilterNet) is the strongest permissively-licensed drop-in option; adding it after AEC3 closes roughly half the gap to Zoom. We've left that as a follow-on for contributors interested in pushing the quality ceiling.
+
+**Safety net: text-based bleed deduplication.** After transcription, a word-level pass compares each mic segment's words against nearby system-channel words. When a mic segment says "First, you had the red leaf varieties. Wait. Really?" while the system channel says "First, you had the red leaf varieties," we subtract the bleed words from the mic segment and keep the user's reaction ("Wait. Really?"). This preserves real user speech even when Deepgram transcribes mic + bleed as a single utterance.
+
+Two layers of defence, operating at different levels of the stack. AEC3 handles the signal-level case; the word dedup catches the residual. The text-dedup parameters are configurable for unusual hardware:
 
 | Parameter | Default | What it controls |
 |---|---|---|
 | `bleed_time_window_sec` | 3.0 | How far apart (in seconds) two segments can be and still be compared for bleed |
-| `bleed_similarity_threshold` | 0.5 | Word overlap ratio (0-1) above which a mic segment is considered bleed |
+| `bleed_similarity_threshold` | 0.4 | Word overlap ratio (0-1) above which a whole mic segment is dropped when word-level data is absent |
 | `bleed_min_words` | 2 | Minimum words in a mic segment before it's checked for bleed |
-
-With AEC enabled, bleed dedup rarely fires. It's insurance, not the main mechanism.
 
 ---
 

@@ -185,7 +185,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             {step === 'calendar' &&
               'Connect your calendar to auto-match recordings to events and identify speakers.'}
             {step === 'anthropic' &&
-              'Optionally enable AI-powered meeting summaries and action item extraction.'}
+              'Highly recommended — generates topic-organised meeting notes with action items. Skip and you\'ll just get raw transcripts.'}
             {step === 'launch' &&
               'QuietClaw runs quietly in your menu bar, automatically recording your meetings.'}
           </p>
@@ -337,13 +337,22 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
 
           {step === 'anthropic' && (
             <div className="space-y-4">
+              <div className="rounded-xl border border-accent/25 bg-accent-soft p-4 space-y-1.5">
+                <p className="text-sm text-text-primary font-medium">Why this matters</p>
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  Deepgram (already set up) transcribes every meeting. Claude turns that transcript into readable meeting notes — topic sections, nested bullets, action items. Without this key, you get raw dialogue but no summaries.
+                </p>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Uses Claude Haiku by default. Typical cost: a fraction of a cent per meeting.
+                </p>
+              </div>
               <p className="text-xs text-text-secondary">
-                Uses Claude Haiku for fast, cost-effective summaries. Get an API key at{' '}
+                Get a key at{' '}
                 <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" className="text-accent hover:underline">console.anthropic.com</a>
               </p>
               <input
                 type="password"
-                placeholder="Paste your Anthropic API key (or leave blank to skip)"
+                placeholder="Paste your Anthropic API key"
                 value={anthropicKey}
                 onChange={(e) => { setAnthropicKey(e.target.value); setAnthropicError(null) }}
                 onKeyDown={(e) => e.key === 'Enter' && saveAnthropicKey()}
@@ -363,8 +372,13 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                   ? 'Checking...'
                   : anthropicKey.trim()
                     ? 'Save Key & Continue'
-                    : 'Skip'}
+                    : 'Skip for now'}
               </button>
+              {!anthropicKey.trim() && (
+                <p className="text-xs text-text-muted text-center">
+                  You can add a key later in Settings. Transcripts will still save.
+                </p>
+              )}
             </div>
           )}
 

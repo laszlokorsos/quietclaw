@@ -190,7 +190,11 @@ export class PipelineOrchestrator {
       await syncNow()
       this.calendarMatch = matchRecordingToEvent(this.startTime)
       if (this.calendarMatch) {
-        attendees = this.calendarMatch.event.attendees
+        // Google Calendar can return events with no `attendees` field at all
+        // (e.g. solo-ownership events or events the user declined visibility
+        // on). Default to an empty array so downstream speaker resolution
+        // doesn't crash on undefined.
+        attendees = this.calendarMatch.event.attendees ?? []
         log.info(
           `[Pipeline] Matched calendar event: "${this.calendarMatch.event.title}" — ` +
             `${attendees.length} attendees`

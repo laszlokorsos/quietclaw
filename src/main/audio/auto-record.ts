@@ -149,7 +149,9 @@ function handleMeetingEvent(event: MeetingDetectionEvent): void {
 
     log.info(`[AutoRecord] Meeting ended (${missedPollCount} consecutive misses) — stopping recording`)
     missedPollCount = 0
-    autoStop()
+    autoStop().catch((err) => {
+      log.error('[AutoRecord] autoStop failed:', err)
+    })
   }
 }
 

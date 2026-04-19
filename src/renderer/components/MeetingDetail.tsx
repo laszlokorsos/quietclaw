@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useToast } from '../contexts/ToastContext'
 import SpeakerMapping from './SpeakerMapping'
 
@@ -84,11 +84,28 @@ export default function MeetingDetail({
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // Tracks whether we've already kicked off an auto-summarize for this
+  // meetingId, so re-renders don't spawn duplicate Claude calls.
+  const autoSummarizedFor = useRef<string | null>(null)
   const { addToast } = useToast()
 
   useEffect(() => {
+    autoSummarizedFor.current = null
     loadData()
   }, [meetingId])
+
+  // Auto-summarize once per meeting load if we have a transcript, no summary
+  // yet, and an Anthropic key configured. Saves the user a manual click and
+  // makes the Summary tab feel like it "just appears" after a recording.
+  useEffect(() => {
+    if (loading || summarizing) return
+    if (!transcript || summary) return
+    if (!hasAnthropicKey) return
+    if (autoSummarizedFor.current === meetingId) return
+    autoSummarizedFor.current = meetingId
+    handleSummarize()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, summarizing, transcript, summary, hasAnthropicKey, meetingId])
 
   // Escape closes delete dialog (and stops App.tsx from navigating back)
   useEffect(() => {
@@ -490,22 +507,47 @@ export default function MeetingDetail({
               </button>
             )}
           </div>
-        ) : (
+        ) : hasAnthropicKey ? (
           <div className="space-y-3">
             <p className="text-sm text-text-secondary">
-              {hasAnthropicKey
-                ? 'No summary generated yet.'
-                : 'No summary available. Set an Anthropic API key in Settings to enable summarization.'}
+              {summarizing
+                ? 'Generating summary — this usually takes a few seconds.'
+                : 'No summary yet. Generate one from the transcript.'}
             </p>
-            {hasAnthropicKey && (
-              <button
-                onClick={handleSummarize}
-                disabled={summarizing}
-                className="px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover disabled:opacity-40 transition-colors"
+            <button
+              onClick={handleSummarize}
+              disabled={summarizing}
+              className="px-4 py-2.5 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-hover disabled:opacity-40 transition-colors"
+            >
+              {summarizing ? 'Generating...' : 'Generate Summary'}
+            </button>
+          </div>
+        ) : (
+          // No Anthropic key configured. QuietClaw records fine without one
+          // (Deepgram is doing the actual transcription); the summary layer
+          // just needs a Claude key. Make the call to action explicit rather
+          // than a dead "no summary available" line.
+          <div className="rounded-xl border border-accent/25 bg-accent-soft p-5 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">
+                Add an Anthropic API key to get summaries
+              </h3>
+              <p className="text-sm text-text-secondary mt-1 leading-relaxed">
+                QuietClaw uses Claude to turn each transcript into topic-organised meeting notes with action items. Your transcript is already saved — generating the summary is a one-click step once a key is set.
+              </p>
+            </div>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Get a key at{' '}
+              <a
+                href="https://console.anthropic.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent hover:underline"
               >
-                {summarizing ? 'Generating Summary...' : 'Generate Summary'}
-              </button>
-            )}
+                console.anthropic.com
+              </a>
+              , then paste it into Settings → Anthropic. Summarisation runs with Claude Haiku by default — typical cost is a fraction of a cent per meeting.
+            </p>
           </div>
         )
       )}

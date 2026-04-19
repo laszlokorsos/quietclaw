@@ -26,12 +26,23 @@
             "CLANG_ENABLE_OBJC_ARC": "YES",
             "CLANG_CXX_LANGUAGE_STANDARD": "c++17",
             "MACOSX_DEPLOYMENT_TARGET": "13.0",
+            # Build a universal .node (arm64 + x86_64) so one binary works on
+            # both Apple silicon and Intel Macs inside the universal DMG.
+            # The prebuilt libwebrtc-audio-processing.a is already universal.
+            # node-gyp drives a make-based build and ignores the Xcode-only
+            # ARCHS setting, so we inject `-arch arm64 -arch x86_64` directly
+            # via CFLAGS/CPLUSPLUSFLAGS/LDFLAGS to get a fat binary.
+            "OTHER_CFLAGS": ["-arch", "arm64", "-arch", "x86_64"],
             "OTHER_CPLUSPLUSFLAGS": [
               "-std=c++17",
+              "-arch", "arm64",
+              "-arch", "x86_64",
               "-isysroot",
               "<!@(xcrun --show-sdk-path)"
             ],
             "OTHER_LDFLAGS": [
+              "-arch", "arm64",
+              "-arch", "x86_64",
               "-framework ScreenCaptureKit",
               "-framework CoreAudio",
               "-framework AudioToolbox",

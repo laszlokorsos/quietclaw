@@ -125,9 +125,10 @@ All markdown files include YAML frontmatter with structured metadata. Speaker na
 - **Silent audio capture** via Core Audio Taps (mic + system audio, no virtual device)
 - **Auto-detection** of Google Meet, Zoom, and Teams calls via window title and mic activity
 - **Real-time transcription** via Deepgram with multi-speaker diarization
+- **WebRTC AEC3 echo cancellation** on the mic path — the same echo canceller Chrome's `getUserMedia` ships, which is what Google Meet uses in a browser. Good baseline, not state-of-the-art (commercial stacks like Teams and Zoom layer a trained neural residual suppressor on top — see [ARCHITECTURE.md](ARCHITECTURE.md) for the honest quality comparison and how to swap in DeepFilterNet 3 if you want to push further).
 - **Speaker identification** — mic audio is always "you"; system audio speakers separated by diarization; 2-person calls fully named via calendar; 3+ person calls support manual speaker mapping
 - **Google Calendar integration** — multi-account OAuth, automatic event matching, attendee extraction
-- **Optional AI summarization** — executive summary, topics, decisions, action items
+- **AI summarization** — Claude turns the transcript into topic-organised meeting notes with action items. Highly recommended but optional; transcripts still save without it.
 - **Structured output** — JSON + Markdown files per meeting, indexed in SQLite
 - **Crash recovery** — orphaned recordings automatically recovered on next launch
 - **Platform join buttons** — upcoming meetings show clickable Google Meet / Zoom / Teams buttons
@@ -211,3 +212,7 @@ QuietClaw records audio from your meetings. Recording laws vary by jurisdiction 
 ## License
 
 [Apache 2.0](LICENSE)
+
+## Credits
+
+App icon and tray glyph are based on ["Crab claw" by Lorc](https://game-icons.net/1x1/lorc/crab-claw.html), licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Colour recast and compositing by the QuietClaw authors.
