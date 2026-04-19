@@ -19,11 +19,27 @@ interface Transcript {
   model: string
 }
 
+interface TopicPoint {
+  text: string
+  details?: string[]
+}
+
+interface SummaryTopic {
+  topic: string
+  points?: TopicPoint[]
+  // Pre-v4 shape kept so old on-disk summaries still render.
+  participants?: string[]
+  summary?: string
+}
+
 interface Summary {
   executive_summary: string
-  topics: Array<{ topic: string; participants: string[]; summary: string }>
-  decisions: string[]
+  topics: SummaryTopic[]
   sentiment: string
+  // Pre-v4 fields — only present on legacy summaries on disk.
+  key_points?: string[]
+  decisions?: string[]
+  open_questions?: string[]
 }
 
 interface ActionItem {
@@ -32,13 +48,12 @@ interface ActionItem {
   assignee: string
   priority: string
   status: string
-  agent_executable: boolean
-  /** How certain the summarizer is this is a real commitment. */
-  confidence?: 'high' | 'medium' | 'low'
-  /** Quote or paraphrase from the transcript supporting this action. */
+  confidence?: string
   rationale?: string
   due_date?: string
+  details?: string[]
 }
+
 
 interface MeetingMeta {
   id: string
@@ -63,7 +78,7 @@ export default function MeetingDetail({
   const [transcript, setTranscript] = useState<Transcript | null>(null)
   const [summary, setSummary] = useState<Summary | null>(null)
   const [actions, setActions] = useState<ActionItem[]>([])
-  const [tab, setTab] = useState<'summary' | 'transcript' | 'actions'>('summary')
+  const [tab, setTab] = useState<'summary' | 'transcript'>('summary')
   const [loading, setLoading] = useState(true)
   const [summarizing, setSummarizing] = useState(false)
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
@@ -277,7 +292,7 @@ export default function MeetingDetail({
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b border-border/40">
-        {(['summary', 'transcript', 'actions'] as const).map((t) => (
+        {(['summary', 'transcript'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -288,9 +303,6 @@ export default function MeetingDetail({
             }`}
           >
             {t}
-            {t === 'actions' && actions.length > 0 && (
-              <span className="ml-1.5 text-xs text-text-muted">({actions.length})</span>
-            )}
           </button>
         ))}
       </div>
@@ -360,54 +372,112 @@ export default function MeetingDetail({
 
       {tab === 'summary' && (
         summary ? (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-xs font-medium text-text-secondary mb-2">
-                Executive Summary
-              </h3>
-              <p className="text-sm text-text-secondary leading-relaxed">{summary.executive_summary}</p>
-            </div>
-
-            {summary.topics.length > 0 && (
-              <div>
-                <h3 className="text-xs font-medium text-text-secondary mb-2">
-                  Topics
-                </h3>
-                <div className="space-y-4">
-                  {summary.topics.map((topic, i) => (
-                    <div key={i} className="border-l-2 border-accent/30 pl-4">
-                      <p className="text-sm font-medium text-text-primary">{topic.topic}</p>
-                      <p className="text-xs text-text-muted mt-0.5">{topic.participants.join(', ')}</p>
-                      <p className="text-sm text-text-secondary mt-1.5">{topic.summary}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          <div className="space-y-7">
+            {summary.executive_summary && (
+              <p className="text-sm text-text-secondary leading-relaxed">
+                {summary.executive_summary}
+              </p>
             )}
 
-            {summary.decisions.length > 0 && (
-              <div>
-                <h3 className="text-xs font-medium text-text-secondary mb-2">
-                  Decisions
-                </h3>
-                <ul className="space-y-1.5">
-                  {summary.decisions.map((d, i) => (
-                    <li key={i} className="text-sm text-text-secondary flex gap-2">
-                      <span className="text-accent shrink-0">&bull;</span>
-                      {d}
+            {summary.topics.map((topic, i) => (
+              <section key={i} className="space-y-2">
+                <h3 className="text-sm font-semibold text-text-primary">{topic.topic}</h3>
+                {topic.points && topic.points.length > 0 ? (
+                  <ul className="space-y-1.5 text-sm text-text-secondary">
+                    {topic.points.map((point, j) => (
+                      <li key={j}>
+                        <div className="flex gap-2 leading-relaxed">
+                          <span className="text-accent shrink-0">•</span>
+                          <span>{point.text}</span>
+                        </div>
+                        {point.details && point.details.length > 0 && (
+                          <ul className="mt-1 ml-5 space-y-1">
+                            {point.details.map((d, k) => (
+                              <li key={k} className="flex gap-2 leading-relaxed text-text-muted">
+                                <span className="shrink-0">◦</span>
+                                <span>{d}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  // Legacy pre-v4 topic: flat paragraph + optional participants.
+                  <div className="space-y-1">
+                    {topic.participants && topic.participants.length > 0 && (
+                      <p className="text-xs text-text-muted">{topic.participants.join(', ')}</p>
+                    )}
+                    {topic.summary && (
+                      <p className="text-sm text-text-secondary leading-relaxed">{topic.summary}</p>
+                    )}
+                  </div>
+                )}
+              </section>
+            ))}
+
+            {actions.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-text-primary">Action Items & Next Steps</h3>
+                <ul className="space-y-1.5 text-sm text-text-secondary">
+                  {actions.map((a) => (
+                    <li key={a.id}>
+                      <div className="flex gap-2 leading-relaxed">
+                        <span className="text-accent shrink-0">•</span>
+                        <span>
+                          {a.description}
+                          {a.due_date && (
+                            <span className="ml-2 text-xs text-text-muted">· due {a.due_date}</span>
+                          )}
+                        </span>
+                      </div>
+                      {a.details && a.details.length > 0 && (
+                        <ul className="mt-1 ml-5 space-y-1">
+                          {a.details.map((d, k) => (
+                            <li key={k} className="flex gap-2 leading-relaxed text-text-muted">
+                              <span className="shrink-0">◦</span>
+                              <span>{d}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </li>
                   ))}
                 </ul>
-              </div>
+              </section>
+            )}
+
+            {/* Legacy pre-v4 sections — only render if the summary has them */}
+            {summary.decisions && summary.decisions.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-text-primary">Decisions</h3>
+                <ul className="space-y-1.5 text-sm text-text-secondary">
+                  {summary.decisions.map((d, i) => (
+                    <li key={i} className="flex gap-2 leading-relaxed">
+                      <span className="text-accent shrink-0">•</span>
+                      <span>{d}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {summary.open_questions && summary.open_questions.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-text-primary">Open Questions</h3>
+                <ul className="space-y-1.5 text-sm text-text-secondary">
+                  {summary.open_questions.map((q, i) => (
+                    <li key={i} className="flex gap-2 leading-relaxed">
+                      <span className="text-accent shrink-0">•</span>
+                      <span>{q}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
 
             {summary.sentiment && (
-              <div>
-                <h3 className="text-xs font-medium text-text-secondary mb-2">
-                  Tone
-                </h3>
-                <p className="text-sm text-text-secondary">{summary.sentiment}</p>
-              </div>
+              <p className="text-xs italic text-text-muted">Tone: {summary.sentiment}</p>
             )}
 
             {hasAnthropicKey && (
@@ -440,57 +510,6 @@ export default function MeetingDetail({
         )
       )}
 
-      {tab === 'actions' && (
-        actions.length > 0 ? (
-          <div className="space-y-3">
-            {actions.map((action) => (
-              <div key={action.id} className="bg-surface-secondary rounded-xl p-5 flex items-start gap-3">
-                <span className={`text-xs px-1.5 py-0.5 rounded-lg font-medium shrink-0 mt-0.5 ${
-                  action.priority === 'high' ? 'bg-error-bg text-error-text' :
-                  action.priority === 'medium' ? 'bg-warning-bg text-warning-text' :
-                  'bg-surface-elevated text-text-secondary'
-                }`}>
-                  {action.priority}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-text-primary">{action.description}</p>
-                  <p className="text-xs text-text-muted mt-0.5">
-                    {action.assignee}
-                    {action.confidence && action.confidence !== 'high' && (
-                      <span className="ml-2">· {action.confidence} confidence</span>
-                    )}
-                    {action.due_date && (
-                      <span className="ml-2">· due {action.due_date}</span>
-                    )}
-                    {action.agent_executable && (
-                      <span className="ml-2 text-accent">· agent-executable</span>
-                    )}
-                  </p>
-                  {action.rationale && (
-                    <details className="mt-2">
-                      <summary className="text-xs text-text-muted hover:text-text-secondary cursor-pointer select-none">
-                        Why
-                      </summary>
-                      <blockquote className="mt-1.5 pl-3 border-l-2 border-border text-xs text-text-secondary italic">
-                        {action.rationale}
-                      </blockquote>
-                    </details>
-                  )}
-                </div>
-                <span className={`text-xs shrink-0 ${
-                  action.status === 'completed' ? 'text-success-text' :
-                  action.status === 'in_progress' ? 'text-warning-text' :
-                  'text-text-muted'
-                }`}>
-                  {action.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-text-secondary">No action items for this meeting.</p>
-        )
-      )}
     </div>
   )
 }

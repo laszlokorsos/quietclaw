@@ -505,15 +505,54 @@ function renderSummaryMarkdown(
   lines.push(`# ${metadata.title}`)
   lines.push('')
 
-  // Lede paragraph — the 15-second read. No heading: it's the first thing
-  // you see, same way a human-written note page often starts with a quick
-  // line before the bullets.
   if (summary.executive_summary) {
     lines.push(summary.executive_summary)
     lines.push('')
   }
 
-  // Key points — the 30-second skim. Scannable, one idea per bullet.
+  // Prefer v4+ layout (topic-organised nested bullets). If the summary came
+  // from a pre-v4 prompt on disk, fall back to the legacy renderer below so
+  // old meetings still display with all their information.
+  const hasV4Points = summary.topics.some((t) => t.points && t.points.length > 0)
+  if (hasV4Points) {
+    for (const topic of summary.topics) {
+      lines.push(`### ${topic.topic}`)
+      lines.push('')
+      for (const point of topic.points ?? []) {
+        lines.push(`- ${point.text}`)
+        for (const detail of point.details ?? []) {
+          lines.push(`  - ${detail}`)
+        }
+      }
+      lines.push('')
+    }
+
+    if (actions.length > 0) {
+      lines.push('### Action Items & Next Steps')
+      lines.push('')
+      for (const a of actions) {
+        // Description is already natural-language ("Alice to tell Sarah..."),
+        // so render it verbatim. Emit rich metadata only when meaningful.
+        const meta: string[] = []
+        if (a.due_date) meta.push(`due ${a.due_date}`)
+        if (a.confidence && a.confidence !== 'high') meta.push(`${a.confidence} confidence`)
+        const suffix = meta.length > 0 ? ` _(${meta.join(' · ')})_` : ''
+        lines.push(`- ${a.description}${suffix}`)
+        for (const detail of a.details ?? []) {
+          lines.push(`  - ${detail}`)
+        }
+      }
+      lines.push('')
+    }
+
+    if (summary.sentiment) {
+      lines.push(`_Tone: ${summary.sentiment}_`)
+      lines.push('')
+    }
+    return lines.join('\n')
+  }
+
+  // Legacy (pre-v4) renderer. Triggered only by old summaries on disk.
   const keyPoints = summary.key_points ?? []
   if (keyPoints.length > 0) {
     lines.push('## Key Points')
@@ -523,18 +562,15 @@ function renderSummaryMarkdown(
     lines.push('')
   }
 
-  if (summary.decisions.length > 0) {
+  const decisions = summary.decisions ?? []
+  if (decisions.length > 0) {
     lines.push('## Decisions')
-    for (const d of summary.decisions) {
+    for (const d of decisions) {
       lines.push(`- ${d}`)
     }
     lines.push('')
   }
 
-  // Actions rendered as checkboxes — the "what do I need to do" list.
-  // Assignee in @-mention style so it reads like a notes app. Rationale is
-  // a nested blockquote the reader can ignore on the skim or expand if
-  // they want to verify the commitment against the transcript.
   if (actions.length > 0) {
     lines.push('## Action Items')
     for (const a of actions) {
@@ -562,17 +598,18 @@ function renderSummaryMarkdown(
     lines.push('')
   }
 
-  // Topics — the deep-dive layer. Renamed "Discussion" because that's what
-  // it is in a notes context. Only shown if there's more than bullets can
-  // carry.
   if (summary.topics.length > 0) {
     lines.push('## Discussion')
     for (const topic of summary.topics) {
       lines.push(`### ${topic.topic}`)
-      lines.push(`*Participants: ${topic.participants.map(wikilink).join(', ')}*`)
-      lines.push('')
-      lines.push(topic.summary)
-      lines.push('')
+      if (topic.participants && topic.participants.length > 0) {
+        lines.push(`*Participants: ${topic.participants.map(wikilink).join(', ')}*`)
+        lines.push('')
+      }
+      if (topic.summary) {
+        lines.push(topic.summary)
+        lines.push('')
+      }
     }
   }
 

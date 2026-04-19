@@ -124,25 +124,33 @@ export interface SpeakerInfo {
   email?: string
 }
 
+/** One bullet in a topic section — a position, finding, or statement with
+ * optional supporting sub-bullets underneath. */
+export interface TopicPoint {
+  text: string
+  /** Sub-bullets rendered under this point. */
+  details?: string[]
+}
+
+/** A topic-organised section of the notes. The render order of `topics[]`
+ * IS the reading order of the notes — the summariser should pick topic
+ * ordering that flows like a story. */
+export interface SummaryTopic {
+  topic: string
+  /** v4+ — hierarchical bullets for this topic. */
+  points?: TopicPoint[]
+  /** Pre-v4 — flat summary paragraph. Read-only for legacy on-disk files. */
+  summary?: string
+  /** Pre-v4 — participant credits. Read-only for legacy files. */
+  participants?: string[]
+}
+
 /** Structured meeting notes + summary */
 export interface MeetingSummary {
   /** 2-3 sentence lede — what a busy teammate reads in 15 seconds */
   executive_summary: string
-  /**
-   * Scannable bullets — the "30-second skim" layer between the lede and the
-   * full topic discussion. Optional for backward compat with summaries
-   * produced by pre-v3 prompts on disk.
-   */
-  key_points?: string[]
-  /** Topics discussed with attribution */
+  /** Topics (sections). Each carries hierarchical bullets in v4+. */
   topics: SummaryTopic[]
-  /** Key decisions made */
-  decisions: string[]
-  /**
-   * Questions raised during the meeting that weren't resolved. Optional
-   * for backward compat with summaries produced by pre-v3 prompts.
-   */
-  open_questions?: string[]
   /** Overall sentiment/tone */
   sentiment: string
   /** Provider and model used */
@@ -155,12 +163,12 @@ export interface MeetingSummary {
    * has set a custom prompt.
    */
   prompt_version: string
-}
-
-export interface SummaryTopic {
-  topic: string
-  participants: string[]
-  summary: string
+  /** Pre-v4 fields — kept optional so we can still read and render older
+   * summaries on disk without silently losing information. New summaries
+   * don't emit these; they fold into topics instead. */
+  key_points?: string[]
+  decisions?: string[]
+  open_questions?: string[]
 }
 
 /** An action item extracted from a meeting */
@@ -192,4 +200,8 @@ export interface ActionItem {
   status: 'pending' | 'in_progress' | 'completed'
   /** Due date if mentioned (ISO 8601) */
   due_date?: string
+  /** v4+ — sub-bullets rendered under this action in summary.md for
+   * Granola-style "context under each commitment" output. actions.json
+   * keeps them too so agents have the same context. */
+  details?: string[]
 }
