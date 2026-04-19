@@ -54,11 +54,13 @@ For speed, prefer `transcript.md` if you need a human-readable view and don't ne
 
 ### `summary.json` — present when `metadata.summarized === true`
 
-- `executive_summary`: 2-3 sentences
-- `topics[]`: `{ topic, participants[], summary }`
+- `executive_summary`: 2-3 sentence lede
+- `key_points[]`: scannable bullets — the 30-second skim
+- `topics[]`: `{ topic, participants[], summary }` — detailed discussion per topic
 - `decisions[]`: strings — commitments the group made
+- `open_questions[]`: things raised but not resolved in the meeting
 - `sentiment`: one-phrase tone descriptor
-- `prompt_version`: identifies which prompt produced this summary
+- `prompt_version`: identifies which prompt produced this summary. Older summaries (pre-v3) won't have `key_points` or `open_questions`; treat those as empty arrays.
 
 ### `actions.json` — present when any actions were extracted
 

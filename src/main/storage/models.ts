@@ -124,14 +124,25 @@ export interface SpeakerInfo {
   email?: string
 }
 
-/** Executive summary of a meeting */
+/** Structured meeting notes + summary */
 export interface MeetingSummary {
-  /** 2-3 sentence executive summary */
+  /** 2-3 sentence lede — what a busy teammate reads in 15 seconds */
   executive_summary: string
+  /**
+   * Scannable bullets — the "30-second skim" layer between the lede and the
+   * full topic discussion. Optional for backward compat with summaries
+   * produced by pre-v3 prompts on disk.
+   */
+  key_points?: string[]
   /** Topics discussed with attribution */
   topics: SummaryTopic[]
   /** Key decisions made */
   decisions: string[]
+  /**
+   * Questions raised during the meeting that weren't resolved. Optional
+   * for backward compat with summaries produced by pre-v3 prompts.
+   */
+  open_questions?: string[]
   /** Overall sentiment/tone */
   sentiment: string
   /** Provider and model used */

@@ -499,22 +499,28 @@ function renderSummaryMarkdown(
 ): string {
   const lines: string[] = []
 
-  lines.push(buildFrontmatter(metadata, { type: 'meeting-summary' }))
-  lines.push(`# Summary — ${metadata.title}`)
-  lines.push('')
-  lines.push('## Executive Summary')
-  lines.push(summary.executive_summary)
+  lines.push(buildFrontmatter(metadata, { type: 'meeting-notes' }))
+  // Title matches the meeting title — no "Summary —" prefix so the file
+  // reads as notes for the meeting, not a separate summary artifact.
+  lines.push(`# ${metadata.title}`)
   lines.push('')
 
-  if (summary.topics.length > 0) {
-    lines.push('## Topics')
-    for (const topic of summary.topics) {
-      lines.push(`### ${topic.topic}`)
-      lines.push(`*Participants: ${topic.participants.map(wikilink).join(', ')}*`)
-      lines.push('')
-      lines.push(topic.summary)
-      lines.push('')
+  // Lede paragraph — the 15-second read. No heading: it's the first thing
+  // you see, same way a human-written note page often starts with a quick
+  // line before the bullets.
+  if (summary.executive_summary) {
+    lines.push(summary.executive_summary)
+    lines.push('')
+  }
+
+  // Key points — the 30-second skim. Scannable, one idea per bullet.
+  const keyPoints = summary.key_points ?? []
+  if (keyPoints.length > 0) {
+    lines.push('## Key Points')
+    for (const kp of keyPoints) {
+      lines.push(`- ${kp}`)
     }
+    lines.push('')
   }
 
   if (summary.decisions.length > 0) {
@@ -525,22 +531,49 @@ function renderSummaryMarkdown(
     lines.push('')
   }
 
+  // Actions rendered as checkboxes — the "what do I need to do" list.
+  // Assignee in @-mention style so it reads like a notes app. Rationale is
+  // a nested blockquote the reader can ignore on the skim or expand if
+  // they want to verify the commitment against the transcript.
   if (actions.length > 0) {
     lines.push('## Action Items')
     for (const a of actions) {
-      // Headline line — priority + confidence badges so readers can scan.
-      const confidenceBadge = a.confidence === 'high' ? '' : ` _(${a.confidence} confidence)_`
-      lines.push(`- **${a.description}** — ${a.assignee}${confidenceBadge}`)
+      const checkbox = a.status === 'completed' ? '- [x]' : '- [ ]'
+      const who = a.assignee && a.assignee !== 'Unassigned' ? `**@${a.assignee}**` : '**Unassigned**'
+      const meta: string[] = []
+      if (a.due_date) meta.push(`due ${a.due_date}`)
+      if (a.confidence && a.confidence !== 'high') meta.push(`${a.confidence} confidence`)
+      if (a.agent_executable) meta.push('agent-executable')
+      const metaSuffix = meta.length > 0 ? ` _(${meta.join(' · ')})_` : ''
+      lines.push(`${checkbox} ${who}: ${a.description}${metaSuffix}`)
       if (a.rationale) {
-        // Quoted rationale as an indented blockquote — keeps the source
-        // grounded without forcing the reader into the full transcript.
         lines.push(`  > ${a.rationale}`)
-      }
-      if (a.due_date) {
-        lines.push(`  _Due: ${a.due_date}_`)
       }
     }
     lines.push('')
+  }
+
+  const openQuestions = summary.open_questions ?? []
+  if (openQuestions.length > 0) {
+    lines.push('## Open Questions')
+    for (const q of openQuestions) {
+      lines.push(`- ${q}`)
+    }
+    lines.push('')
+  }
+
+  // Topics — the deep-dive layer. Renamed "Discussion" because that's what
+  // it is in a notes context. Only shown if there's more than bullets can
+  // carry.
+  if (summary.topics.length > 0) {
+    lines.push('## Discussion')
+    for (const topic of summary.topics) {
+      lines.push(`### ${topic.topic}`)
+      lines.push(`*Participants: ${topic.participants.map(wikilink).join(', ')}*`)
+      lines.push('')
+      lines.push(topic.summary)
+      lines.push('')
+    }
   }
 
   if (summary.sentiment) {
