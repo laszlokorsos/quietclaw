@@ -72,20 +72,20 @@ export default function RecoveryBanner({
   if (!processing && completed.length > 0 && failed.length === 0) {
     const first = completed[0]
     return (
-      <div className="mb-5 flex items-center gap-3 bg-green-950/40 border border-green-900/40 rounded-xl px-4 py-3">
-        <svg className="w-4 h-4 text-success shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="mb-5 flex items-center gap-3 bg-success-bg border border-success-border rounded-xl px-4 py-3">
+        <svg className="w-4 h-4 text-success-text shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
         </svg>
         <div className="flex-1 min-w-0">
           {completed.length === 1 ? (
             <button
               onClick={() => first.meetingId && onSelectMeeting(first.meetingId)}
-              className="text-sm text-green-300 hover:text-green-200 truncate block text-left transition-colors"
+              className="text-sm text-success-text hover:text-success-text/80 truncate block text-left transition-colors"
             >
               Recovered: {first.title}
             </button>
           ) : (
-            <p className="text-sm text-green-300">
+            <p className="text-sm text-success-text">
               Recovered {completed.length} recordings from a previous session
             </p>
           )}
@@ -117,18 +117,18 @@ export default function RecoveryBanner({
   // Failed state
   if (failed.length > 0) {
     return (
-      <div className="mb-5 flex items-center gap-3 bg-red-950/30 border border-red-900/30 rounded-xl px-4 py-3">
-        <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="mb-5 flex items-center gap-3 bg-error-bg border border-error-border rounded-xl px-4 py-3">
+        <svg className="w-4 h-4 text-error-text shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z" />
         </svg>
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-red-300/80">
+          <p className="text-sm text-error-text">
             {failed[0].error?.includes('No Deepgram')
               ? 'Found a recording from a previous session. Add a Deepgram API key in Settings to recover it.'
               : "Couldn't recover recording \u2014 will retry next launch."}
           </p>
           {failed[0].error && !failed[0].error.includes('No Deepgram') && (
-            <p className="text-xs text-red-400/50 mt-0.5 truncate">{failed[0].error}</p>
+            <p className="text-xs text-error-text/60 mt-0.5 truncate">{failed[0].error}</p>
           )}
         </div>
         <button
@@ -145,11 +145,11 @@ export default function RecoveryBanner({
 
   // Waiting state
   return (
-    <div className="mb-5 flex items-center gap-3 bg-amber-950/30 border border-amber-900/30 rounded-xl px-4 py-3">
-      <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <div className="mb-5 flex items-center gap-3 bg-warning-bg border border-warning-border rounded-xl px-4 py-3">
+      <svg className="w-4 h-4 text-warning-text shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
       </svg>
-      <p className="text-sm text-amber-300/80 flex-1">
+      <p className="text-sm text-warning-text flex-1">
         Found {orphanedFiles.length} recording{orphanedFiles.length > 1 ? 's' : ''} from a previous session.
         {hasDeepgramKey
           ? ''
@@ -158,7 +158,7 @@ export default function RecoveryBanner({
       {hasDeepgramKey && (
         <button
           onClick={triggerRecovery}
-          className="text-xs text-amber-300 hover:text-amber-200 shrink-0 transition-colors"
+          className="text-xs text-warning-text hover:text-warning-text/80 shrink-0 transition-colors"
         >
           Recover Now
         </button>

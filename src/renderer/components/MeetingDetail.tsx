@@ -446,8 +446,8 @@ export default function MeetingDetail({
             {actions.map((action) => (
               <div key={action.id} className="bg-surface-secondary rounded-xl p-5 flex items-start gap-3">
                 <span className={`text-xs px-1.5 py-0.5 rounded-lg font-medium shrink-0 mt-0.5 ${
-                  action.priority === 'high' ? 'bg-priority-high-bg text-priority-high-text' :
-                  action.priority === 'medium' ? 'bg-priority-medium-bg text-priority-medium-text' :
+                  action.priority === 'high' ? 'bg-error-bg text-error-text' :
+                  action.priority === 'medium' ? 'bg-warning-bg text-warning-text' :
                   'bg-surface-elevated text-text-secondary'
                 }`}>
                   {action.priority}
@@ -478,8 +478,8 @@ export default function MeetingDetail({
                   )}
                 </div>
                 <span className={`text-xs shrink-0 ${
-                  action.status === 'completed' ? 'text-success' :
-                  action.status === 'in_progress' ? 'text-yellow-400' :
+                  action.status === 'completed' ? 'text-success-text' :
+                  action.status === 'in_progress' ? 'text-warning-text' :
                   'text-text-muted'
                 }`}>
                   {action.status}

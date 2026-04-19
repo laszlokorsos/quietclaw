@@ -1,8 +1,8 @@
 import { useToast } from '../contexts/ToastContext'
 
 const variantStyles = {
-  success: 'text-success',
-  error: 'text-recording-text',
+  success: 'text-success-text',
+  error: 'text-error-text',
   info: 'text-text-primary'
 }
 

@@ -219,16 +219,16 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
               {hasPermission === null || checking ? (
                 <p className="text-sm text-text-muted">Checking permission...</p>
               ) : hasPermission ? (
-                <div className="flex items-center gap-2 bg-green-950/50 border border-green-900/50 rounded-xl px-4 py-3">
-                  <svg className="w-5 h-5 text-success shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-center gap-2 bg-success-bg border border-success-border rounded-xl px-4 py-3">
+                  <svg className="w-5 h-5 text-success-text shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-sm text-green-300">Permission granted</span>
+                  <span className="text-sm text-success-text">Permission granted</span>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="bg-amber-950/30 border border-amber-900/40 rounded-xl px-4 py-3">
-                    <p className="text-sm text-amber-300/90">
+                  <div className="bg-warning-bg border border-warning-border rounded-xl px-4 py-3">
+                    <p className="text-sm text-warning-text">
                       Permission not yet granted. Open System Settings, find "Electron" in the Screen & System Audio Recording list, and toggle it on.
                     </p>
                   </div>
@@ -253,11 +253,11 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           {step === 'deepgram' && (
             <div className="space-y-4">
               {deepgramSaved ? (
-                <div className="flex items-center gap-2 bg-green-950/50 border border-green-900/50 rounded-xl px-4 py-3">
-                  <svg className="w-5 h-5 text-success shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-center gap-2 bg-success-bg border border-success-border rounded-xl px-4 py-3">
+                  <svg className="w-5 h-5 text-success-text shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-sm text-green-300">API key saved</span>
+                  <span className="text-sm text-success-text">API key saved</span>
                 </div>
               ) : (
                 <>
@@ -272,11 +272,11 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                     onChange={(e) => { setDeepgramKey(e.target.value); setDeepgramError(null) }}
                     onKeyDown={(e) => e.key === 'Enter' && saveDeepgramKey()}
                     className={`w-full px-4 py-2.5 bg-surface-secondary border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none font-mono transition-colors ${
-                      deepgramError ? 'border-red-900/70 focus:border-red-700' : 'border-border focus:border-accent'
+                      deepgramError ? 'border-error-border focus:border-error-text' : 'border-border focus:border-accent'
                     }`}
                   />
                   {deepgramError && (
-                    <p className="text-xs text-red-400 -mt-2">{deepgramError}</p>
+                    <p className="text-xs text-error-text -mt-2">{deepgramError}</p>
                   )}
                   <button
                     onClick={saveDeepgramKey}
@@ -293,14 +293,14 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           {step === 'calendar' && (
             <div className="space-y-4">
               {calendarConnected ? (
-                <div className="flex items-start gap-2 bg-green-950/50 border border-green-900/50 rounded-xl px-4 py-3">
-                  <svg className="w-5 h-5 text-success shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-start gap-2 bg-success-bg border border-success-border rounded-xl px-4 py-3">
+                  <svg className="w-5 h-5 text-success-text shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                   <div className="flex-1">
-                    <p className="text-sm text-green-300">Calendar connected</p>
+                    <p className="text-sm text-success-text">Calendar connected</p>
                     {calendarSyncSummary && (
-                      <p className="text-xs text-green-300/70 mt-0.5">{calendarSyncSummary}</p>
+                      <p className="text-xs text-success-text/70 mt-0.5">{calendarSyncSummary}</p>
                     )}
                   </div>
                 </div>
@@ -320,8 +320,8 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
               ) : (
                 <>
                   {calendarError && (
-                    <div className="bg-red-950/30 border border-red-900/40 rounded-xl px-4 py-3">
-                      <p className="text-xs text-red-300/90 leading-relaxed">{calendarError}</p>
+                    <div className="bg-error-bg border border-error-border rounded-xl px-4 py-3">
+                      <p className="text-xs text-error-text leading-relaxed">{calendarError}</p>
                     </div>
                   )}
                   <button
@@ -348,11 +348,11 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                 onChange={(e) => { setAnthropicKey(e.target.value); setAnthropicError(null) }}
                 onKeyDown={(e) => e.key === 'Enter' && saveAnthropicKey()}
                 className={`w-full px-4 py-2.5 bg-surface-secondary border rounded-xl text-sm text-text-primary placeholder-text-muted outline-none font-mono transition-colors ${
-                  anthropicError ? 'border-red-900/70 focus:border-red-700' : 'border-border focus:border-accent'
+                  anthropicError ? 'border-error-border focus:border-error-text' : 'border-border focus:border-accent'
                 }`}
               />
               {anthropicError && (
-                <p className="text-xs text-red-400 -mt-2">{anthropicError}</p>
+                <p className="text-xs text-error-text -mt-2">{anthropicError}</p>
               )}
               <button
                 onClick={saveAnthropicKey}

@@ -69,7 +69,7 @@ function AccountRow({ account, onRemove, onTagUpdate }: {
       </div>
       <button
         onClick={onRemove}
-        className="text-xs text-text-muted hover:text-red-400 transition-colors shrink-0 ml-2"
+        className="text-xs text-text-muted hover:text-error-text transition-colors shrink-0 ml-2"
       >
         Remove
       </button>
@@ -344,7 +344,7 @@ export default function Settings({
               <span className="text-sm font-medium text-text-primary">Deepgram</span>
               {hasDeepgramKey && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-success">{saved === 'deepgram' ? 'Saved!' : 'Configured'}</span>
+                  <span className="text-xs text-success-text">{saved === 'deepgram' ? 'Saved!' : 'Configured'}</span>
                   <button onClick={() => setHasDeepgramKey(false)} className="text-xs text-text-muted hover:text-text-secondary transition-colors">Change</button>
                 </div>
               )}
@@ -400,7 +400,7 @@ export default function Settings({
               <span className="text-sm font-medium text-text-primary">Anthropic</span>
               {hasAnthropicKey && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-success">{saved === 'anthropic' ? 'Saved!' : 'Configured'}</span>
+                  <span className="text-xs text-success-text">{saved === 'anthropic' ? 'Saved!' : 'Configured'}</span>
                   <button onClick={() => setHasAnthropicKey(false)} className="text-xs text-text-muted hover:text-text-secondary transition-colors">Change</button>
                 </div>
               )}
@@ -459,7 +459,7 @@ export default function Settings({
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium text-text-primary">Google Calendar</span>
             {calendarAccounts.length > 0 && (
-              <span className="text-xs text-success">{calendarAccounts.length} connected</span>
+              <span className="text-xs text-success-text">{calendarAccounts.length} connected</span>
             )}
           </div>
           <p className="text-xs text-text-muted mb-3">

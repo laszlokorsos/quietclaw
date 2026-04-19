@@ -707,7 +707,7 @@ export default function MeetingList({ onSelect, isRecording, isProcessing, sessi
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {m.actionCount > 0 && (
-                          <span className="text-xs text-success font-medium bg-success/10 px-2 py-0.5 rounded-full">{m.actionCount} action{m.actionCount !== 1 ? 's' : ''}</span>
+                          <span className="text-xs text-success-text font-medium bg-success-bg px-2 py-0.5 rounded-full">{m.actionCount} action{m.actionCount !== 1 ? 's' : ''}</span>
                         )}
                         {!m.summarized && (
                           <span className="text-xs text-text-muted bg-surface-secondary px-2 py-0.5 rounded-full">Not summarized</span>
