@@ -242,6 +242,84 @@ export default function Settings({
   return (
     <div className="p-6 max-w-lg mx-auto">
 
+      {/* ── General ── */}
+      <section className="mb-8">
+        <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">General</h3>
+        <div className="bg-surface-secondary rounded-2xl divide-y divide-border/40">
+
+          {/* Launch at login */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-medium text-text-primary">Launch at login</span>
+                <p className="text-xs text-text-muted mt-0.5">Start automatically when you log in</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={launchAtLogin}
+                onClick={async () => {
+                  const next = !launchAtLogin
+                  setLaunchAtLogin(next)
+                  if (api) await api.config.setField('launch_at_login', next)
+                }}
+                className={`relative w-10 h-6 rounded-full transition-colors ${launchAtLogin ? 'bg-accent' : 'bg-border'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${launchAtLogin ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Appearance */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-medium text-text-primary">Appearance</span>
+              </div>
+              <div className="inline-flex bg-surface rounded-lg p-0.5">
+                {themeOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => onThemeChange(opt.value)}
+                    className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                      themePreference === opt.value
+                        ? 'bg-surface-elevated text-text-primary shadow-sm'
+                        : 'text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Recording Location */}
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-text-primary">Storage location</span>
+              <button
+                onClick={changeDataDir}
+                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+              >
+                Change
+              </button>
+            </div>
+            <code className="text-xs text-text-muted">
+              {dataDir}
+            </code>
+          </div>
+
+          {/* Recording & Consent */}
+          <div className="px-5 py-4">
+            <span className="text-sm font-medium text-text-primary">Recording & consent</span>
+            <p className="text-xs text-text-muted mt-1 leading-relaxed">
+              Recording laws vary by jurisdiction. It is your responsibility to comply with the laws that apply to you and the other participants in your meetings.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* ── API Keys ── */}
       <section className="mb-8">
         <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">API Keys</h3>
@@ -361,6 +439,62 @@ export default function Settings({
         </div>
       </section>
 
+      {/* ── Integrations ── */}
+      <section className="mb-8">
+        <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">Integrations</h3>
+        <div className="bg-surface-secondary rounded-2xl px-5 py-4">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-medium text-text-primary">Google Calendar</span>
+            {calendarAccounts.length > 0 && (
+              <span className="text-xs text-success">{calendarAccounts.length} connected</span>
+            )}
+          </div>
+          <p className="text-xs text-text-muted mb-3">
+            Auto-match recordings to events and identify speakers from attendees.
+          </p>
+
+          {calendarAccounts.length > 0 && (
+            <div className="space-y-1.5 mb-3">
+              {calendarAccounts.map((account) => (
+                <AccountRow
+                  key={account.email}
+                  account={account}
+                  onRemove={() => removeCalendar(account.email)}
+                  onTagUpdate={(tag) => {
+                    api?.calendar.updateTag(account.email, tag)
+                    setCalendarAccounts((prev) =>
+                      prev.map((a) => a.email === account.email ? { ...a, tag } : a)
+                    )
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+          {connectingCalendar ? (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-2 bg-surface rounded-lg">
+                <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
+                <span className="text-sm text-text-secondary">Waiting for Google sign-in...</span>
+              </div>
+              <button
+                onClick={() => { api?.calendar.abortAuth(); setConnectingCalendar(false) }}
+                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={connectCalendar}
+              className="px-3 py-2 bg-surface text-text-primary text-sm rounded-lg hover:bg-surface-elevated transition-colors"
+            >
+              {calendarAccounts.length > 0 ? 'Add Another Account' : 'Connect Google Account'}
+            </button>
+          )}
+        </div>
+      </section>
+
       {/* ── Summarization ── */}
       {hasAnthropicKey && (
         <section className="mb-8">
@@ -426,140 +560,6 @@ export default function Settings({
           </div>
         </section>
       )}
-
-      {/* ── Integrations ── */}
-      <section className="mb-8">
-        <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">Integrations</h3>
-        <div className="bg-surface-secondary rounded-2xl px-5 py-4">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm font-medium text-text-primary">Google Calendar</span>
-            {calendarAccounts.length > 0 && (
-              <span className="text-xs text-success">{calendarAccounts.length} connected</span>
-            )}
-          </div>
-          <p className="text-xs text-text-muted mb-3">
-            Auto-match recordings to events and identify speakers from attendees.
-          </p>
-
-          {calendarAccounts.length > 0 && (
-            <div className="space-y-1.5 mb-3">
-              {calendarAccounts.map((account) => (
-                <AccountRow
-                  key={account.email}
-                  account={account}
-                  onRemove={() => removeCalendar(account.email)}
-                  onTagUpdate={(tag) => {
-                    api?.calendar.updateTag(account.email, tag)
-                    setCalendarAccounts((prev) =>
-                      prev.map((a) => a.email === account.email ? { ...a, tag } : a)
-                    )
-                  }}
-                />
-              ))}
-            </div>
-          )}
-
-          {connectingCalendar ? (
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-2 bg-surface rounded-lg">
-                <div className="w-3 h-3 border-2 border-text-muted border-t-text-secondary rounded-full animate-spin" />
-                <span className="text-sm text-text-secondary">Waiting for Google sign-in...</span>
-              </div>
-              <button
-                onClick={() => { api?.calendar.abortAuth(); setConnectingCalendar(false) }}
-                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={connectCalendar}
-              className="px-3 py-2 bg-surface text-text-primary text-sm rounded-lg hover:bg-surface-elevated transition-colors"
-            >
-              {calendarAccounts.length > 0 ? 'Add Another Account' : 'Connect Google Account'}
-            </button>
-          )}
-        </div>
-      </section>
-
-      {/* ── General ── */}
-      <section className="mb-8">
-        <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">General</h3>
-        <div className="bg-surface-secondary rounded-2xl divide-y divide-border/40">
-
-          {/* Launch at login */}
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-sm font-medium text-text-primary">Launch at login</span>
-                <p className="text-xs text-text-muted mt-0.5">Start automatically when you log in</p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={launchAtLogin}
-                onClick={async () => {
-                  const next = !launchAtLogin
-                  setLaunchAtLogin(next)
-                  if (api) await api.config.setField('launch_at_login', next)
-                }}
-                className={`relative w-10 h-6 rounded-full transition-colors ${launchAtLogin ? 'bg-accent' : 'bg-border'}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${launchAtLogin ? 'translate-x-4' : 'translate-x-0'}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* Appearance */}
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-sm font-medium text-text-primary">Appearance</span>
-              </div>
-              <div className="inline-flex bg-surface rounded-lg p-0.5">
-                {themeOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => onThemeChange(opt.value)}
-                    className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                      themePreference === opt.value
-                        ? 'bg-surface-elevated text-text-primary shadow-sm'
-                        : 'text-text-secondary hover:text-text-primary'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Recording Location */}
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-text-primary">Storage location</span>
-              <button
-                onClick={changeDataDir}
-                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
-              >
-                Change
-              </button>
-            </div>
-            <code className="text-xs text-text-muted">
-              {dataDir}
-            </code>
-          </div>
-
-          {/* Recording & Consent */}
-          <div className="px-5 py-4">
-            <span className="text-sm font-medium text-text-primary">Recording & consent</span>
-            <p className="text-xs text-text-muted mt-1 leading-relaxed">
-              Recording laws vary by jurisdiction. It is your responsibility to comply with the laws that apply to you and the other participants in your meetings.
-            </p>
-          </div>
-        </div>
-      </section>
 
       {/* ── About ── */}
       <section className="mb-6">
