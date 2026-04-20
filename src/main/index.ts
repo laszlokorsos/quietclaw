@@ -239,44 +239,16 @@ app.whenReady().then(async () => {
     log.info(`[App] Audio capture available: ${available}`)
 
     if (available) {
-      const hasPermission = await audioCapture.hasPermission()
-      log.info(`[App] Screen Recording permission: ${hasPermission}`)
-
-      if (!hasPermission && config.general.onboarding_complete) {
-        log.info('[App] Screen Recording permission not granted — prompting user')
-
-        // Show dock icon temporarily so the dialog is visible
-        if (process.platform === 'darwin') {
-          app.dock.show()
-        }
-
-        // On macOS Sequoia (15+), there's no system permission dialog — the user
-        // must manually enable the app in System Settings. Show our own dialog.
-        const { response } = await dialog.showMessageBox({
-          type: 'info',
-          title: 'Screen Recording Permission Required',
-          message: 'QuietClaw needs Screen & System Audio Recording permission to capture meeting audio.',
-          detail:
-            'Click "Open System Settings" to go to Privacy & Security settings.\n\n' +
-            'Look for "Electron" in the list and toggle it ON.\n\n' +
-            'After enabling, you\'ll need to restart QuietClaw.',
-          buttons: ['Open System Settings', 'Later'],
-          defaultId: 0
-        })
-
-        if (response === 0) {
-          // Register the app in the Screen Recording list, then open Settings
-          await audioCapture.requestPermissions()
-          shell.openExternal(
-            'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
-          )
-        }
-
-        // Hide dock icon again
-        if (process.platform === 'darwin') {
-          app.dock.hide()
-        }
-      }
+      // We intentionally do NOT read audioCapture.hasPermission() and pop a
+      // "please grant Screen Recording" dialog at startup any more. That
+      // signal comes from CGPreflightScreenCaptureAccess(), which returns
+      // false-negatives for unsigned builds whose code-sign identity drifts
+      // between DMGs — so users with permission ALREADY granted in System
+      // Settings were getting the dialog every launch and the "Open
+      // Settings" button was useless ("it's already on"). If permission is
+      // genuinely missing at record time, ScreenCaptureKit itself will
+      // prompt via TCC. One prompt, user-initiated, at the right time.
+      log.info('[App] Audio capture ready — permission prompts (if any) deferred to first use')
     }
   } catch (err) {
     log.error('[App] Failed to initialize audio capture:', err)
